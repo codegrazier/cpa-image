@@ -1,0 +1,710 @@
+export const STORAGE_KEY = "gpt-image-2-console-settings";
+export const REQUEST_CACHE_KEY = "gpt-image-2-console-requests";
+export const LAST_PROMPT_KEY = "gpt-image-2-console-last-prompt";
+export const REQUEST_DETAIL_DB_NAME = "gpt-image-2-console";
+export const REQUEST_DETAIL_DB_VERSION = 1;
+export const REQUEST_DETAIL_STORE_NAME = "request-details";
+
+export const MIN_REQUEST_CONCURRENCY = 1;
+export const MAX_REQUEST_CONCURRENCY = 10;
+export const MIN_REQUEST_INTERVAL_SECONDS = 0;
+export const MAX_REQUEST_INTERVAL_SECONDS = 3600;
+export const MAX_IMAGE_COUNT = 100;
+
+export const SIZE_OPTIONS = [
+  "auto",
+  "1024x1024",
+  "1536x1024",
+  "1024x1536",
+  "2048x2048",
+  "2048x1152",
+  "3840x2160",
+  "2160x3840",
+] as const;
+
+export const QUALITY_OPTIONS = ["auto", "low", "medium", "high"] as const;
+export const BACKGROUND_OPTIONS = ["auto", "opaque", "transparent"] as const;
+export const OUTPUT_FORMAT_OPTIONS = ["png", "webp", "jpeg"] as const;
+
+export type ImageSize = (typeof SIZE_OPTIONS)[number];
+export type ImageQuality = (typeof QUALITY_OPTIONS)[number];
+export type ImageBackground = (typeof BACKGROUND_OPTIONS)[number];
+export type ImageOutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number];
+export type GenerationMethod = "gpt-image-2" | "image_generation";
+export type RequestStatus = "queued" | "running" | "done" | "error" | "canceled" | string;
+export type RequestFilter = "all" | "active" | "done" | "failed";
+
+export interface AppSettings {
+  baseUrl: string;
+  apiKey: string;
+  rememberKey: boolean;
+  model: string;
+  imageGenerationModel: string;
+  strictPrompt: boolean;
+  requestConcurrency: number | string;
+  requestIntervalSeconds: number | string;
+  size: ImageSize;
+  quality: ImageQuality;
+  n: number | string;
+  background: ImageBackground;
+  outputFormat: ImageOutputFormat;
+}
+
+export interface GenerationValues extends AppSettings {
+  prompt: string;
+}
+
+export interface ImageToolPayload {
+  type: "image_generation";
+  size?: string;
+  quality?: string;
+  background?: string;
+  output_format?: string;
+}
+
+export interface RequestPayload {
+  model?: string;
+  prompt?: string;
+  input?: string;
+  n?: number | string;
+  size?: string;
+  quality?: string;
+  background?: string;
+  output_format?: string;
+  response_format?: string;
+  tools?: ImageToolPayload[];
+  tool_choice?: {
+    type: "image_generation";
+  };
+  [key: string]: unknown;
+}
+
+export interface GeneratedImage {
+  src: string;
+  kind: "base64" | "url";
+  path: string;
+}
+
+export interface ImageRequestRecord {
+  id: string;
+  title: string;
+  index: number;
+  total: number;
+  method: GenerationMethod | "";
+  endpoint: string;
+  payload: RequestPayload;
+  sourcePrompt: string;
+  imageCount?: number;
+  hasCachedDetails?: boolean;
+  detailsMissing?: boolean;
+  status: RequestStatus;
+  createdAt: number;
+  startedAt: number | null;
+  endedAt: number | null;
+  images: GeneratedImage[];
+  response: unknown;
+  error: string;
+  controller?: AbortController | null;
+  cancelRequested?: boolean;
+  apiKey?: string;
+}
+
+export interface CachedRequestRecord
+  extends Omit<ImageRequestRecord, "images" | "response" | "controller" | "cancelRequested" | "apiKey"> {
+  imageCount: number;
+  hasCachedDetails: boolean;
+}
+
+export const DEFAULTS: AppSettings = {
+  baseUrl: "http://localhost:8317/v1",
+  apiKey: "",
+  rememberKey: false,
+  model: "gpt-image-2",
+  imageGenerationModel: "gpt-5.5",
+  strictPrompt: true,
+  requestConcurrency: 2,
+  requestIntervalSeconds: 60,
+  size: "auto",
+  quality: "auto",
+  n: 1,
+  background: "auto",
+  outputFormat: "png",
+};
+
+export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
+  queued: "排队中",
+  running: "生成中",
+  done: "完成",
+  error: "失败",
+  canceled: "已取消",
+};
+
+export const REQUEST_FILTER_LABELS: Record<RequestFilter, string> = {
+  all: "全部",
+  active: "进行中",
+  done: "已完成",
+  failed: "已失败",
+};
+
+export const REQUEST_FILTER_EMPTY_TEXT: Record<RequestFilter, string> = {
+  all: "暂无请求",
+  active: "暂无进行中请求",
+  done: "暂无已完成请求",
+  failed: "暂无失败或取消请求",
+};
+
+const STRICT_PROMPT_PREFIX = [
+  "请把下面的原始 Prompt 当作最终图像指令执行。",
+  "不要改写、扩写、翻译、润色、补充主体、改变构图、改变风格、添加未出现的元素。",
+  "必须逐字保持原始 Prompt 的语义、语言和细节不变。",
+  "",
+  "原始 Prompt:",
+].join("\n");
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function trimTrailingSlash(value: unknown) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function routeFromBaseUrl(baseUrl: string, route: string) {
+  const input = trimTrailingSlash(baseUrl || DEFAULTS.baseUrl);
+  const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
+  const routeWithoutV1 = normalizedRoute.replace(/^\/v1\//, "/");
+
+  if (input.endsWith(normalizedRoute) || input.endsWith(routeWithoutV1)) {
+    return input;
+  }
+
+  if (input.endsWith("/v1")) {
+    return `${input}${routeWithoutV1}`;
+  }
+
+  return `${input}/v1${routeWithoutV1}`;
+}
+
+export function normalizeImageEndpoint(baseUrl: string) {
+  return routeFromBaseUrl(baseUrl, "/v1/images/generations");
+}
+
+export function normalizeResponsesEndpoint(baseUrl: string) {
+  return routeFromBaseUrl(baseUrl, "/v1/responses");
+}
+
+export function normalizeModelsEndpoint(baseUrl: string) {
+  return routeFromBaseUrl(baseUrl, "/v1/models");
+}
+
+export function applyPromptPolicy(prompt: string, strictPrompt = DEFAULTS.strictPrompt) {
+  if (!strictPrompt) return prompt;
+  return `${STRICT_PROMPT_PREFIX}\n${prompt}`;
+}
+
+export function stripPromptPolicy(prompt: unknown) {
+  const text = String(prompt || "");
+  const strictPrefix = `${STRICT_PROMPT_PREFIX}\n`;
+  if (text.startsWith(strictPrefix)) {
+    return text.slice(strictPrefix.length);
+  }
+
+  const marker = "原始 Prompt:\n";
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex >= 0 && text.slice(0, markerIndex).includes("不要改写")) {
+    return text.slice(markerIndex + marker.length);
+  }
+
+  return text;
+}
+
+export function payloadImageTool(payload: RequestPayload | undefined | null) {
+  return Array.isArray(payload?.tools)
+    ? payload.tools.find((tool) => tool?.type === "image_generation") || null
+    : null;
+}
+
+export function payloadPrompt(payload: RequestPayload | undefined | null) {
+  if (typeof payload?.prompt === "string") return payload.prompt;
+  if (typeof payload?.input === "string") return payload.input;
+  return "";
+}
+
+export function payloadOutputFormat(payload: RequestPayload | undefined | null) {
+  const tool = payloadImageTool(payload);
+  return payload?.output_format || tool?.output_format || DEFAULTS.outputFormat;
+}
+
+export function payloadSize(payload: RequestPayload | undefined | null) {
+  const tool = payloadImageTool(payload);
+  return payload?.size || tool?.size || DEFAULTS.size;
+}
+
+export function reusablePromptForRequest(request: Pick<ImageRequestRecord, "payload" | "sourcePrompt">) {
+  return String(request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload))).trim();
+}
+
+export function imageCountFromValue(value: unknown) {
+  const imageCount = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(imageCount) || imageCount < 1 || imageCount > MAX_IMAGE_COUNT) {
+    throw new Error(`数量必须是 1 到 ${MAX_IMAGE_COUNT} 之间的整数。`);
+  }
+  return imageCount;
+}
+
+export function validatePromptAndOutput(values: Pick<GenerationValues, "prompt" | "background" | "outputFormat">) {
+  const prompt = String(values.prompt || "").trim();
+
+  if (!prompt) {
+    throw new Error("Prompt 不能为空。");
+  }
+
+  if (values.background === "transparent" && values.outputFormat === "jpeg") {
+    throw new Error("透明背景需要 png 或 webp 格式。");
+  }
+
+  return prompt;
+}
+
+export function buildPayload(values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">): RequestPayload {
+  const prompt = validatePromptAndOutput({
+    prompt: values.prompt,
+    background: values.background || DEFAULTS.background,
+    outputFormat: values.outputFormat || DEFAULTS.outputFormat,
+  });
+  const imageCount = imageCountFromValue(values.n || DEFAULTS.n);
+
+  return {
+    model: DEFAULTS.model,
+    prompt: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt),
+    n: imageCount,
+    size: values.size || DEFAULTS.size,
+    quality: values.quality || DEFAULTS.quality,
+    background: values.background || DEFAULTS.background,
+    output_format: values.outputFormat || DEFAULTS.outputFormat,
+    response_format: "b64_json",
+  };
+}
+
+export function buildResponsesImagePayload(
+  values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">,
+): RequestPayload {
+  const prompt = validatePromptAndOutput({
+    prompt: values.prompt,
+    background: values.background || DEFAULTS.background,
+    outputFormat: values.outputFormat || DEFAULTS.outputFormat,
+  });
+  const model = String(values.imageGenerationModel || DEFAULTS.imageGenerationModel).trim();
+  imageCountFromValue(values.n || DEFAULTS.n);
+
+  if (!model) {
+    throw new Error("image_generation 模型不能为空。");
+  }
+
+  return {
+    model,
+    input: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt),
+    tools: [
+      {
+        type: "image_generation",
+        size: values.size || DEFAULTS.size,
+        quality: values.quality || DEFAULTS.quality,
+        background: values.background || DEFAULTS.background,
+        output_format: values.outputFormat || DEFAULTS.outputFormat,
+      },
+    ],
+    tool_choice: {
+      type: "image_generation",
+    },
+  };
+}
+
+export function buildGenerationRequests(payload: RequestPayload) {
+  const requestedCount = Number.parseInt(String(payload.n), 10);
+
+  return Array.from({ length: requestedCount }, () => ({
+    ...payload,
+    n: 1,
+  }));
+}
+
+export function buildResponsesImageRequests(payload: RequestPayload, count: unknown) {
+  const requestedCount = imageCountFromValue(count);
+
+  return Array.from({ length: requestedCount }, () => ({
+    ...payload,
+    tools: payload.tools?.map((tool) => ({ ...tool })) || [],
+  }));
+}
+
+function normalizeInteger(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+export function normalizeRequestConcurrency(value: unknown) {
+  return normalizeInteger(value, Number(DEFAULTS.requestConcurrency), MIN_REQUEST_CONCURRENCY, MAX_REQUEST_CONCURRENCY);
+}
+
+export function normalizeRequestIntervalSeconds(value: unknown) {
+  return normalizeInteger(
+    value,
+    Number(DEFAULTS.requestIntervalSeconds),
+    MIN_REQUEST_INTERVAL_SECONDS,
+    MAX_REQUEST_INTERVAL_SECONDS,
+  );
+}
+
+export function requestControlSummary(settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">) {
+  return `并发 ${normalizeRequestConcurrency(settings.requestConcurrency)} · 间隔 ${normalizeRequestIntervalSeconds(
+    settings.requestIntervalSeconds,
+  )}s`;
+}
+
+export function formatBatchPrefix(date = new Date()) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${month}${day}-${hour}${minute}`;
+}
+
+export function nextRequestIndexForPrefix(batchPrefix: string, records: Array<Pick<ImageRequestRecord, "title">> = []) {
+  const escapedPrefix = batchPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const titlePattern = new RegExp(`^${escapedPrefix}-(\\d+)$`);
+
+  return records.reduce((nextIndex, request) => {
+    const match = titlePattern.exec(String(request.title || ""));
+    if (!match) return nextIndex;
+
+    const index = Number.parseInt(match[1], 10);
+    return Number.isInteger(index) ? Math.max(nextIndex, index + 1) : nextIndex;
+  }, 1);
+}
+
+export function createRequestRecords(
+  requestPayloads: RequestPayload[],
+  endpoint: string,
+  now = performance.now(),
+  date = new Date(),
+  existingRecords: Array<Pick<ImageRequestRecord, "title">> = [],
+  method: GenerationMethod | "" = "",
+): ImageRequestRecord[] {
+  const batchPrefix = formatBatchPrefix(date);
+  const startIndex = nextRequestIndexForPrefix(batchPrefix, existingRecords);
+
+  return requestPayloads.map((payload, index) => ({
+    id: `request-${Math.round(now)}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${index + 1}`}`,
+    title: `${batchPrefix}-${startIndex + index}`,
+    index: startIndex + index,
+    total: requestPayloads.length,
+    method,
+    endpoint,
+    payload,
+    sourcePrompt: stripPromptPolicy(payloadPrompt(payload)),
+    status: "queued",
+    createdAt: now,
+    startedAt: null,
+    endedAt: null,
+    images: [],
+    response: null,
+    error: "",
+    controller: null,
+    cancelRequested: false,
+  }));
+}
+
+export function requestImageCount(request: Pick<ImageRequestRecord, "images" | "imageCount">) {
+  return request.images?.length || request.imageCount || 0;
+}
+
+export function prepareRequestForCache(request: ImageRequestRecord): CachedRequestRecord {
+  const status = request.status === "running" || request.status === "queued" ? "canceled" : request.status;
+  const endedAt = request.endedAt ?? (status === "canceled" ? performance.now() : null);
+  const error =
+    request.status === "running" || request.status === "queued" ? "页面刷新，请求已中断。" : request.error || "";
+
+  return {
+    id: request.id,
+    title: request.title,
+    index: request.index,
+    total: request.total,
+    method: request.method || "",
+    endpoint: request.endpoint,
+    payload: request.payload,
+    sourcePrompt: request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload)),
+    imageCount: requestImageCount(request),
+    hasCachedDetails: Boolean((request.images?.length || 0) > 0 || request.response != null),
+    status,
+    createdAt: request.createdAt,
+    startedAt: request.startedAt,
+    endedAt,
+    error,
+  };
+}
+
+export function restoreCachedRequest(request: Partial<ImageRequestRecord & CachedRequestRecord>): ImageRequestRecord {
+  const status = request.status === "running" || request.status === "queued" ? "canceled" : request.status || "canceled";
+
+  return {
+    id: String(request.id || `cached-${Date.now()}`),
+    title: String(request.title || "cached-request"),
+    index: Number.parseInt(String(request.index), 10) || 1,
+    total: Number.parseInt(String(request.total), 10) || 1,
+    method: request.method || "",
+    endpoint: String(request.endpoint || ""),
+    payload: request.payload || {},
+    sourcePrompt: String(request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload))),
+    imageCount: Number.parseInt(String(request.imageCount), 10) || (Array.isArray(request.images) ? request.images.length : 0),
+    hasCachedDetails: Boolean(request.hasCachedDetails || request.response != null || request.images?.length),
+    detailsMissing: Boolean(request.detailsMissing),
+    status,
+    createdAt: Number(request.createdAt) || 0,
+    startedAt: Number(request.startedAt) || null,
+    endedAt: Number(request.endedAt) || (status === "canceled" ? performance.now() : null),
+    images: Array.isArray(request.images) ? request.images : [],
+    response: request.response ?? null,
+    error:
+      request.status === "running" || request.status === "queued" ? "页面刷新，请求已中断。" : request.error || "",
+    controller: null,
+    cancelRequested: false,
+  };
+}
+
+export function cachedRequestRecords(records: ImageRequestRecord[] = []) {
+  return records.map(prepareRequestForCache);
+}
+
+export function requestMatchesFilter(request: Pick<ImageRequestRecord, "status">, filter: RequestFilter = "all") {
+  const status = request?.status;
+  const isActive = status === "queued" || status === "running";
+  const isDone = status === "done";
+
+  if (filter === "active") return isActive;
+  if (filter === "done") return isDone;
+  if (filter === "failed") return !isActive && !isDone;
+  return true;
+}
+
+export function filteredRequestRecords(records: ImageRequestRecord[] = [], filter: RequestFilter = "all") {
+  return records.filter((request) => requestMatchesFilter(request, filter));
+}
+
+export function requestFilterCounts(records: ImageRequestRecord[] = []) {
+  return Object.fromEntries(
+    Object.keys(REQUEST_FILTER_LABELS).map((filter) => [
+      filter,
+      filteredRequestRecords(records, filter as RequestFilter).length,
+    ]),
+  ) as Record<RequestFilter, number>;
+}
+
+function formatSeconds(milliseconds: number) {
+  return `${(Math.max(0, milliseconds) / 1000).toFixed(1)}s`;
+}
+
+export function formatRequestTiming(
+  request: Pick<ImageRequestRecord, "status" | "createdAt" | "startedAt" | "endedAt">,
+  now = performance.now(),
+) {
+  const waitEnd = request.startedAt ?? request.endedAt ?? now;
+  const waitText = `等待 ${formatSeconds(waitEnd - request.createdAt)}`;
+
+  if (request.status === "queued") {
+    return waitText;
+  }
+
+  const runStart = request.startedAt ?? request.createdAt;
+  const runEnd = request.endedAt ?? now;
+  const runLabel = request.status === "running" ? "已用" : "用时";
+  return `${waitText} · ${runLabel} ${formatSeconds(runEnd - runStart)}`;
+}
+
+export function detectMimeFromBase64(base64: unknown, fallbackFormat = "png") {
+  const sample = String(base64 || "").slice(0, 16);
+  if (sample.startsWith("iVBOR")) return "image/png";
+  if (sample.startsWith("/9j/")) return "image/jpeg";
+  if (sample.startsWith("UklG")) return "image/webp";
+  if (sample.startsWith("R0lG")) return "image/gif";
+  return `image/${fallbackFormat || "png"}`;
+}
+
+function base64ToDataUrl(value: unknown, fallbackFormat = "png") {
+  const text = String(value || "").trim();
+  if (text.startsWith("data:image/")) return text;
+  const mime = detectMimeFromBase64(text, fallbackFormat);
+  return `data:${mime};base64,${text}`;
+}
+
+function looksLikeBase64Image(value: unknown) {
+  const text = String(value || "").trim();
+  if (text.startsWith("data:image/")) return true;
+  return text.length > 80 && /^[A-Za-z0-9+/=\s]+$/.test(text);
+}
+
+export function extractImages(response: unknown, fallbackFormat = "png") {
+  const found: GeneratedImage[] = [];
+  const seenObjects = new WeakSet<object>();
+  const base64Keys = new Set(["b64_json", "image_base64", "base64", "image", "result"]);
+  const urlKeys = new Set(["url", "image_url", "output_url"]);
+
+  function addImage(item: GeneratedImage) {
+    if (!item.src || found.some((existing) => existing.src === item.src)) return;
+    found.push(item);
+  }
+
+  function walk(value: unknown, path = "$") {
+    if (value == null) return;
+
+    if (typeof value === "string") {
+      if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:image/")) {
+        addImage({
+          src: value.startsWith("data:image/") ? value : value.trim(),
+          kind: value.startsWith("data:image/") ? "base64" : "url",
+          path,
+        });
+      }
+      return;
+    }
+
+    if (typeof value !== "object") return;
+    if (seenObjects.has(value)) return;
+    seenObjects.add(value);
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, `${path}[${index}]`));
+      return;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      const childPath = `${path}.${key}`;
+      if (typeof child === "string") {
+        const text = child.trim();
+        const outputFormat = isRecord(value) && typeof value.output_format === "string" ? value.output_format : fallbackFormat;
+
+        if (base64Keys.has(key) && looksLikeBase64Image(text)) {
+          addImage({
+            src: base64ToDataUrl(text, outputFormat),
+            kind: "base64",
+            path: childPath,
+          });
+          continue;
+        }
+
+        if (urlKeys.has(key) && (text.startsWith("http://") || text.startsWith("https://"))) {
+          addImage({
+            src: text,
+            kind: "url",
+            path: childPath,
+          });
+          continue;
+        }
+      }
+
+      walk(child, childPath);
+    }
+  }
+
+  walk(response);
+  return found;
+}
+
+function responseContainsKey(value: unknown, targetKey: string) {
+  const seenObjects = new WeakSet<object>();
+
+  function walk(node: unknown): boolean {
+    if (!node || typeof node !== "object") return false;
+    if (seenObjects.has(node)) return false;
+    seenObjects.add(node);
+
+    if (Array.isArray(node)) {
+      return node.some((item) => walk(item));
+    }
+
+    return Object.entries(node).some(([key, child]) => key === targetKey || walk(child));
+  }
+
+  return walk(value);
+}
+
+export function missingImageOutputMessage(body: unknown) {
+  if (responseContainsKey(body, "encrypted_content")) {
+    return "响应中只有 encrypted_content，没有 image_generation_call.result；encrypted_content 是加密内容，不能解析为图片。";
+  }
+
+  return "响应中没有找到图片输出。";
+}
+
+export function sanitizeResponseForDisplay(value: unknown): unknown {
+  const seenObjects = new WeakSet<object>();
+  const largeImageKeys = new Set(["b64_json", "image_base64", "base64", "image", "result"]);
+
+  function scrub(node: unknown, key = ""): unknown {
+    if (typeof node === "string") {
+      if ((largeImageKeys.has(key) || node.startsWith("data:image/")) && node.length > 240) {
+        return `${node.slice(0, 120)}... [${node.length} chars]`;
+      }
+      return node;
+    }
+
+    if (!node || typeof node !== "object") return node;
+    if (seenObjects.has(node)) return "[Circular]";
+    seenObjects.add(node);
+
+    if (Array.isArray(node)) {
+      return node.map((item) => scrub(item));
+    }
+
+    return Object.fromEntries(Object.entries(node).map(([childKey, child]) => [childKey, scrub(child, childKey)]));
+  }
+
+  return scrub(value);
+}
+
+function errorDetailFromBody(body: unknown) {
+  if (!body) return "";
+  if (typeof body === "string") return body;
+  if (!isRecord(body)) return String(body);
+
+  const error = body.error;
+  if (isRecord(error) && typeof error.message === "string") return error.message;
+  if (typeof error === "string") return error;
+  if (typeof body.message === "string") return body.message;
+  return JSON.stringify(sanitizeResponseForDisplay(body));
+}
+
+export function responseBodyHasError(body: unknown) {
+  return Boolean(isRecord(body) && body.error);
+}
+
+export function responseErrorMessage(status: number, body: unknown) {
+  const detail = errorDetailFromBody(body);
+  const searchable = `${status} ${detail} ${JSON.stringify(sanitizeResponseForDisplay(body))}`.toLowerCase();
+
+  if (status === 503 && searchable.includes("auth_unavailable")) {
+    return [
+      "HTTP 503 auth_unavailable：CLIProxyAPI 没有可用认证。",
+      "请确认本页面 API Key 是 config.yaml 的 api-keys 中的一项；",
+      "并确认代理端 auth-dir 中已有可用上游登录/导入凭据，且图片生成未被禁用。",
+    ].join("");
+  }
+
+  if (status === 401 || searchable.includes("invalid api key")) {
+    return "HTTP 401：API Key 未被 CLIProxyAPI 接受。请填写 config.yaml 的 api-keys 中配置的代理 key。";
+  }
+
+  if (status >= 200 && status < 300 && responseBodyHasError(body)) {
+    const code = isRecord(body) && isRecord(body.error) && typeof body.error.code === "string" ? ` (${body.error.code})` : "";
+    return `响应错误：${detail || "上游返回 error。"}${code}`;
+  }
+
+  return `HTTP ${status} ${detail}`;
+}
+
+export function imageDownloadName(request: Pick<ImageRequestRecord, "payload" | "title" | "method">, index = 0) {
+  const format = payloadOutputFormat(request?.payload);
+  const title = String(request?.title || "image").replace(/[^\w.-]+/g, "-");
+  const prefix = request?.method === "image_generation" ? "image-generation" : "gpt-image-2";
+  return `${prefix}-${title}-${index + 1}.${format}`;
+}

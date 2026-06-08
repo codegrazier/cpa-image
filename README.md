@@ -1,10 +1,13 @@
 # GPT Image 2 Console
 
-一个纯前端 Web 应用，用于配置 CLIProxyAPI 的 OpenAI 兼容地址和 API Key，并调用 `gpt-image-2` 生成图片。
+一个 React + TypeScript 前端 Web 应用，用于配置 CLIProxyAPI 的 OpenAI 兼容地址和 API Key，并调用 `gpt-image-2` 或 Responses `image_generation` 生成图片。
+
+界面使用 Vite、Tailwind CSS 和 shadcn/ui 构建，支持请求队列、并发控制、请求间隔、取消请求、本地历史缓存、Prompt 复用、图片下载和响应 JSON 查看。
 
 ## 使用
 
 ```bash
+npm install
 npm start
 ```
 
@@ -24,4 +27,6 @@ npm start
 
 ```bash
 npm test
+npm run typecheck
+npm run build
 ```
