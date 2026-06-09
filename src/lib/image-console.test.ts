@@ -11,21 +11,29 @@ import {
   detectMimeFromBase64,
   extractImages,
   filteredRequestRecords,
+  formatCompletionTime,
   formatRequestTiming,
+  imageBlobFromDataUrl,
   missingImageOutputMessage,
   normalizeImageEndpoint,
   normalizeModelsEndpoint,
   normalizeRequestConcurrency,
   normalizeRequestIntervalSeconds,
   normalizeResponsesEndpoint,
+  prepareImageForDetailCache,
+  prepareImageForRuntime,
   requestFilterCounts,
   responseBodyHasError,
   responseErrorMessage,
   restoreCachedRequest,
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
+  sortedRequestRecordsForFilter,
   stripPromptPolicy,
 } from "@/lib/image-console";
+
+const PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 describe("image console logic", () => {
   test("normalizes base URLs into image endpoints", () => {
@@ -253,13 +261,35 @@ describe("image console logic", () => {
   test("normalizes request queue controls", () => {
     expect(normalizeRequestConcurrency("2")).toBe(2);
     expect(normalizeRequestConcurrency("0")).toBe(1);
-    expect(normalizeRequestConcurrency("99")).toBe(10);
+    expect(normalizeRequestConcurrency("99")).toBe(99);
+    expect(normalizeRequestConcurrency("101")).toBe(100);
     expect(normalizeRequestConcurrency("bad")).toBe(2);
 
     expect(normalizeRequestIntervalSeconds("60")).toBe(60);
     expect(normalizeRequestIntervalSeconds("-1")).toBe(0);
     expect(normalizeRequestIntervalSeconds("9999")).toBe(3600);
     expect(normalizeRequestIntervalSeconds("bad")).toBe(60);
+  });
+
+  test("sorts done request lists by completion time descending", () => {
+    const records = [
+      { id: "created-last", status: "done", createdAt: 3000, endedAt: 4000 },
+      { id: "finished-last", status: "done", createdAt: 1000, endedAt: 9000 },
+      { id: "finished-middle", status: "done", createdAt: 2000, endedAt: 6000 },
+      { id: "queued", status: "queued", createdAt: 5000, endedAt: null },
+    ] as never;
+
+    expect(sortedRequestRecordsForFilter(records, "done").map((request) => request.id)).toEqual([
+      "finished-last",
+      "finished-middle",
+      "created-last",
+    ]);
+    expect(sortedRequestRecordsForFilter(records, "all").map((request) => request.id)).toEqual([
+      "queued",
+      "finished-middle",
+      "finished-last",
+      "created-last",
+    ]);
   });
 
   test("caches and restores source prompts for request reuse", () => {
@@ -332,6 +362,13 @@ describe("image console logic", () => {
     ).toBe("等待 1.2s · 用时 3.0s");
   });
 
+  test("formats completion clock time", () => {
+    const completedAt = new Date(2026, 5, 9, 19, 52, 3).getTime();
+
+    expect(formatCompletionTime(completedAt)).toBe("完成于 19:52:03");
+    expect(formatCompletionTime(null)).toBe("完成时间未记录");
+  });
+
   test("keeps all request records in cache metadata", () => {
     const records = Array.from({ length: 105 }, (_, index) => ({
       id: `request-${index}`,
@@ -346,6 +383,7 @@ describe("image console logic", () => {
       createdAt: index,
       startedAt: index,
       endedAt: index,
+      completedAt: 1781000000000 + index,
       images: [],
       response: null,
       error: "",
@@ -355,6 +393,7 @@ describe("image console logic", () => {
 
     expect(cached).toHaveLength(105);
     expect(cached[0].id).toBe("request-0");
+    expect(cached[0].completedAt).toBe(1781000000000);
     expect(cached[104].id).toBe("request-104");
   });
 
@@ -391,7 +430,7 @@ describe("image console logic", () => {
   test("extracts base64 and URL images from common response shapes", () => {
     const response = {
       data: [
-        { b64_json: "iVBORw0KGgoAAAANSUhEUgAA" + "A".repeat(100) },
+        { b64_json: PNG_BASE64 },
         { url: "https://cdn.example.com/image.png" },
       ],
       output: [{ type: "image_generation.completed", result: "UklGR" + "A".repeat(100), output_format: "webp" }],
@@ -403,6 +442,20 @@ describe("image console logic", () => {
     expect(images[0].src.startsWith("data:image/png;base64,")).toBe(true);
     expect(images[1].src).toBe("https://cdn.example.com/image.png");
     expect(images[2].src.startsWith("data:image/webp;base64,")).toBe(true);
+  });
+
+  test("prepares base64 images as blobs for cache and object URLs for runtime", () => {
+    const [image] = extractImages({ data: [{ b64_json: PNG_BASE64 }] }, "png");
+    const blob = imageBlobFromDataUrl(image.src, "png");
+    const cachedImage = prepareImageForDetailCache(image);
+    const runtimeImage = prepareImageForRuntime(cachedImage!);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(cachedImage?.src).toBe("");
+    expect(cachedImage?.blob).toBeInstanceOf(Blob);
+    expect(runtimeImage.src).toMatch(/^blob:/);
+    expect(runtimeImage.objectUrl).toBe(runtimeImage.src);
+    expect(runtimeImage).not.toHaveProperty("blob");
   });
 
   test("explains encrypted response content without image output", () => {
@@ -422,7 +475,7 @@ describe("image console logic", () => {
       data: [{ b64_json: "iVBOR" + "A".repeat(300) }],
     }) as { data: Array<{ b64_json: string }> };
 
-    expect(sanitized.data[0].b64_json).toMatch(/\[305 chars\]/);
+    expect(sanitized.data[0].b64_json).toBe("[image data omitted, 305 chars]");
   });
 
   test("explains CLIProxyAPI auth_unavailable errors", () => {

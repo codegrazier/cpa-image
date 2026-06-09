@@ -15,3 +15,18 @@ class ResizeObserverMock {
 }
 
 globalThis.ResizeObserver = ResizeObserverMock;
+
+let objectUrlIndex = 0;
+
+Object.defineProperty(globalThis.URL, "createObjectURL", {
+  configurable: true,
+  value: () => {
+    objectUrlIndex += 1;
+    return `blob:test-image-${objectUrlIndex}`;
+  },
+});
+
+Object.defineProperty(globalThis.URL, "revokeObjectURL", {
+  configurable: true,
+  value: () => undefined,
+});

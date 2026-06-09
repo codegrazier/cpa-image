@@ -6,6 +6,9 @@ import App from "@/App";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { STORAGE_KEY, type AppSettings } from "@/lib/image-console";
 
+const PNG_BASE64 = "iVBORw0KGgoA" + "A".repeat(240);
+const WEBP_BASE64 = "UklG" + "A".repeat(100);
+
 function renderApp() {
   return render(
     <TooltipProvider>
@@ -90,7 +93,7 @@ describe("App", () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ b64_json: "iVBOR" + "A".repeat(100) }] }), {
+      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -101,7 +104,8 @@ describe("App", () => {
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
     await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
 
-    expect(await screen.findByAltText("Generated image 1")).toBeInTheDocument();
+    expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+    expect(screen.getByText(/完成于 \d{2}:\d{2}:\d{2} · 1 张图片/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8317/v1/images/generations",
       expect.objectContaining({ method: "POST" }),
@@ -113,7 +117,7 @@ describe("App", () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ output: [{ result: "UklGR" + "A".repeat(100), output_format: "webp" }] }), {
+      new Response(JSON.stringify({ output: [{ result: WEBP_BASE64, output_format: "webp" }] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -124,7 +128,8 @@ describe("App", () => {
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
     await user.click(screen.getByRole("button", { name: /^image_generation$/ }));
 
-    expect(await screen.findByAltText("Generated image 1")).toBeInTheDocument();
+    expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+    expect(screen.getByLabelText("生成方式：image_generation")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8317/v1/responses", expect.objectContaining({ method: "POST" }));
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("gpt-5.5");
@@ -137,7 +142,7 @@ describe("App", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ data: [{ b64_json: "iVBOR" + "A".repeat(100) }] }), {
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -160,5 +165,6 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /响应 JSON/ }));
     const dialog = screen.getByRole("dialog", { name: "响应 JSON" });
     expect(within(dialog).getByText(/b64_json/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/\[image data omitted,/)).toBeInTheDocument();
   });
 });

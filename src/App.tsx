@@ -30,7 +30,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useImageConsole } from "@/hooks/use-image-console";
-import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type RequestFilter } from "@/lib/image-console";
+import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, formatCompletionTime, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type RequestFilter } from "@/lib/image-console";
 import { cn } from "@/lib/utils";
 
 const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
@@ -39,6 +39,10 @@ function statusVariant(status: string) {
   if (status === "error" || status === "canceled") return "destructive" as const;
   if (status === "done") return "default" as const;
   return "secondary" as const;
+}
+
+function generationMethodLabel(request: ImageRequestRecord) {
+  return request.method || "gpt-image-2";
 }
 
 function selectedRequestEmptyText(request: ImageRequestRecord | null) {
@@ -98,24 +102,27 @@ function RequestRow({
   payloadSize: string;
   onSelect: () => void;
 }) {
+  const requestSummary =
+    request.status === "done"
+      ? `${formatCompletionTime(request.completedAt)} · ${imageCount} 张图片`
+      : request.error || `${request.method || "gpt-image-2"} · ${payloadSize} · n=1`;
+
   return (
     <button
       type="button"
       className={cn(
-        "flex min-h-22 w-full items-stretch gap-3 rounded-md border bg-card p-3 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow]",
+        "flex min-h-22 w-full items-stretch gap-3 overflow-hidden rounded-md border bg-card p-3 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow]",
         "hover:border-ring hover:shadow-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
         selected && "border-ring ring-[3px] ring-ring/20",
       )}
       onClick={onSelect}
       aria-label={`查看 ${request.title} 的生成结果`}
     >
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <strong className="truncate text-sm font-semibold">{request.title}</strong>
-        <span className="truncate text-xs font-medium text-muted-foreground">{timing}</span>
-        <span className="truncate text-xs text-muted-foreground">
-          {request.status === "done"
-            ? `${imageCount} 张图片`
-            : request.error || `${request.method || "gpt-image-2"} · ${payloadSize} · n=1`}
+      <span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
+        <strong className="block min-w-0 truncate text-sm font-semibold">{request.title}</strong>
+        <span className="block min-w-0 truncate text-xs font-medium text-muted-foreground">{timing}</span>
+        <span className="line-clamp-2 min-w-0 break-all text-xs text-muted-foreground" title={requestSummary}>
+          {requestSummary}
         </span>
       </span>
       <span className="flex shrink-0 items-start">
@@ -195,7 +202,7 @@ function RequestListPanel({
               </EmptyHeader>
             </Empty>
           ) : filteredRequests.length ? (
-            [...filteredRequests].reverse().map((request) => (
+            filteredRequests.map((request) => (
               <RequestRow
                 key={request.id}
                 request={request}
@@ -285,7 +292,18 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
           <div className="grid min-w-0 flex-1 gap-1">
-            <strong className="truncate text-sm font-semibold">{selectedRequest?.title || "未选择请求"}</strong>
+            <div className="flex min-w-0 items-center gap-2">
+              <strong className="min-w-0 truncate text-sm font-semibold">{selectedRequest?.title || "未选择请求"}</strong>
+              {selectedRequest && (
+                <Badge
+                  variant="secondary"
+                  className="shrink-0"
+                  aria-label={`生成方式：${generationMethodLabel(selectedRequest)}`}
+                >
+                  {generationMethodLabel(selectedRequest)}
+                </Badge>
+              )}
+            </div>
             <span className="truncate text-xs font-medium text-muted-foreground">
               {selectedRequest
                 ? `${REQUEST_STATUS_LABELS[selectedRequest.status] || selectedRequest.status} · ${selectedRequest.endpoint}`
@@ -502,7 +520,7 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
                 id="requestConcurrency"
                 type="number"
                 min={1}
-                max={10}
+                max={100}
                 step={1}
                 inputMode="numeric"
                 value={settings.requestConcurrency}

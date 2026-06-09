@@ -2,6 +2,7 @@ import {
   cachedRequestRecords,
   DEFAULTS,
   LAST_PROMPT_KEY,
+  prepareImageForDetailCache,
   REQUEST_CACHE_KEY,
   REQUEST_DETAIL_DB_NAME,
   REQUEST_DETAIL_DB_VERSION,
@@ -18,6 +19,10 @@ interface RequestDetailEntry {
   images: GeneratedImage[];
   response: unknown;
   savedAt: number;
+}
+
+interface SaveRequestDetailsOptions {
+  prune?: boolean;
 }
 
 export function loadSettings(): AppSettings {
@@ -115,33 +120,57 @@ function closeDb(db: IDBDatabase | null) {
   }
 }
 
-async function saveRequestDetails(records: ImageRequestRecord[]) {
+function requestDetailEntryFromRecord(request: ImageRequestRecord): RequestDetailEntry | null {
+  const images: GeneratedImage[] = [];
+  let hasRuntimeOnlyImage = false;
+
+  for (const image of request.images || []) {
+    const cacheableImage = prepareImageForDetailCache(image);
+    if (cacheableImage) {
+      images.push(cacheableImage);
+      continue;
+    }
+
+    if (image.kind === "base64" && String(image.src || "").startsWith("blob:")) {
+      hasRuntimeOnlyImage = true;
+    }
+  }
+
+  if (hasRuntimeOnlyImage) return null;
+  if (!images.length && request.response == null) return null;
+
+  return {
+    id: request.id,
+    images,
+    response: request.response ?? null,
+    savedAt: Date.now(),
+  };
+}
+
+export async function saveRequestDetails(records: ImageRequestRecord[], options: SaveRequestDetailsOptions = {}) {
   let db: IDBDatabase | null = null;
 
   try {
     db = await openRequestDetailDb();
     if (!db) return;
 
+    const prune = options.prune ?? true;
     const keepIds = new Set(records.map((request) => request.id));
     const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
     const done = transactionDone(transaction);
     const store = transaction.objectStore(REQUEST_DETAIL_STORE_NAME);
 
     for (const request of records) {
-      if ((request.images?.length || 0) > 0 || request.response != null) {
-        store.put({
-          id: request.id,
-          images: request.images || [],
-          response: request.response ?? null,
-          savedAt: Date.now(),
-        } satisfies RequestDetailEntry);
-      }
+      const entry = requestDetailEntryFromRecord(request);
+      if (entry) store.put(entry);
     }
 
-    const keys = await requestToPromise<IDBValidKey[]>(store.getAllKeys());
-    for (const key of keys) {
-      if (!keepIds.has(String(key))) {
-        store.delete(key);
+    if (prune) {
+      const keys = await requestToPromise<IDBValidKey[]>(store.getAllKeys());
+      for (const key of keys) {
+        if (!keepIds.has(String(key))) {
+          store.delete(key);
+        }
       }
     }
 

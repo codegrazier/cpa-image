@@ -10,7 +10,6 @@ import {
   createRequestRecords,
   DEFAULTS,
   extractImages,
-  filteredRequestRecords,
   formatRequestTiming,
   imageCountFromValue,
   imageDownloadName,
@@ -22,12 +21,16 @@ import {
   normalizeResponsesEndpoint,
   payloadOutputFormat,
   payloadSize,
+  prepareImageForDetailCache,
+  prepareImageForRuntime,
   requestControlSummary,
   requestFilterCounts,
   requestImageCount,
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
+  sortedRequestRecordsForFilter,
   type AppSettings,
+  type GeneratedImage,
   type GenerationMethod,
   type ImageRequestRecord,
   type RequestFilter,
@@ -40,6 +43,7 @@ import {
   resetSettings as resetStoredSettings,
   saveCachedRequests,
   saveLastPrompt,
+  saveRequestDetails,
   saveSettings,
 } from "@/lib/storage";
 
@@ -94,6 +98,43 @@ function queueStatusMessage(records: ImageRequestRecord[], settings: AppSettings
 
 function isActiveRequest(request: ImageRequestRecord) {
   return request.status === "queued" || request.status === "running";
+}
+
+function isGeneratedImage(value: ReturnType<typeof prepareImageForDetailCache>): value is GeneratedImage {
+  return Boolean(value);
+}
+
+function collectObjectUrls(records: ImageRequestRecord[]) {
+  const urls = new Set<string>();
+
+  for (const request of records) {
+    for (const image of request.images || []) {
+      if (image.objectUrl) urls.add(image.objectUrl);
+    }
+  }
+
+  return urls;
+}
+
+function revokeObjectUrls(urls: Iterable<string>) {
+  if (typeof URL === "undefined" || typeof URL.revokeObjectURL !== "function") return;
+
+  for (const url of urls) {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function revokeRemovedObjectUrls(previousRecords: ImageRequestRecord[], nextRecords: ImageRequestRecord[]) {
+  const nextUrls = collectObjectUrls(nextRecords);
+  const removedUrls = [...collectObjectUrls(previousRecords)].filter((url) => !nextUrls.has(url));
+  revokeObjectUrls(removedUrls);
+}
+
+function prepareRecordsForRuntime(records: ImageRequestRecord[]) {
+  return records.map((request) => ({
+    ...request,
+    images: (request.images || []).map(prepareImageForRuntime),
+  }));
 }
 
 function initialSettings() {
@@ -156,7 +197,9 @@ export function useImageConsole() {
   }, []);
 
   const commitRecords = useCallback((updater: (records: ImageRequestRecord[]) => ImageRequestRecord[]) => {
-    const next = updater(requestRecordsRef.current);
+    const previous = requestRecordsRef.current;
+    const next = updater(previous);
+    revokeRemovedObjectUrls(previous, next);
     requestRecordsRef.current = next;
     saveCachedRequests(next);
     setRequestRecords(next);
@@ -167,9 +210,10 @@ export function useImageConsole() {
 
     void loadCachedRequests().then((records) => {
       if (cancelled) return;
-      requestRecordsRef.current = records;
-      setRequestRecords(records);
-      setSelectedRequestId(records[records.length - 1]?.id || null);
+      const runtimeRecords = prepareRecordsForRuntime(records);
+      requestRecordsRef.current = runtimeRecords;
+      setRequestRecords(runtimeRecords);
+      setSelectedRequestId(runtimeRecords[runtimeRecords.length - 1]?.id || null);
     });
 
     return () => {
@@ -183,6 +227,7 @@ export function useImageConsole() {
       for (const controller of controllersRef.current.values()) {
         controller.abort();
       }
+      revokeObjectUrls(collectObjectUrls(requestRecordsRef.current));
     };
   }, [clearQueueTimer]);
 
@@ -237,21 +282,39 @@ export function useImageConsole() {
           return;
         }
 
-        const images = extractImages(body, payloadOutputFormat(request.payload)).map((image) => ({
+        const extractedImages = extractImages(body, payloadOutputFormat(request.payload)).map((image) => ({
           ...image,
           path: `${request.title} · ${image.path}`,
         }));
+        const detailImages = extractedImages.map(prepareImageForDetailCache).filter(isGeneratedImage);
+        const runtimeSourceImages =
+          detailImages.length === extractedImages.length && detailImages.length > 0 ? detailImages : extractedImages;
+        const images = runtimeSourceImages.map(prepareImageForRuntime);
+        const displayResponse = sanitizeResponseForDisplay(body);
+        const missingImageMessage = images.length ? "" : missingImageOutputMessage(body);
+
+        void saveRequestDetails(
+          [
+            {
+              ...request,
+              images: detailImages,
+              response: displayResponse,
+            },
+          ],
+          { prune: false },
+        );
 
         commitRecords((records) =>
           records.map((item) =>
             item.id === requestId
               ? {
                   ...item,
-                  response: body,
+                  response: displayResponse,
                   images,
                   status: images.length ? "done" : "error",
-                  error: images.length ? "" : missingImageOutputMessage(body),
+                  error: missingImageMessage,
                   endedAt: performance.now(),
+                  completedAt: images.length ? Date.now() : item.completedAt ?? null,
                 }
               : item,
           ),
@@ -265,7 +328,12 @@ export function useImageConsole() {
                   ...item,
                   status: typedError.name === "AbortError" ? "canceled" : "error",
                   error: typedError.name === "AbortError" ? "请求已取消" : typedError.message,
-                  response: typedError.name === "AbortError" ? item.response : typedError.responseBody ?? null,
+                  response:
+                    typedError.name === "AbortError"
+                      ? item.response
+                      : typedError.responseBody == null
+                        ? null
+                        : sanitizeResponseForDisplay(typedError.responseBody),
                   endedAt: performance.now(),
                 }
               : item,
@@ -352,7 +420,7 @@ export function useImageConsole() {
   }, [clearQueueTimer, requestRecords, settings]);
 
   const filteredRequests = useMemo(
-    () => filteredRequestRecords(requestRecords, selectedRequestFilter),
+    () => sortedRequestRecordsForFilter(requestRecords, selectedRequestFilter),
     [requestRecords, selectedRequestFilter],
   );
 
@@ -360,7 +428,7 @@ export function useImageConsole() {
     setSelectedRequestId((currentId) => {
       if (!filteredRequests.length) return null;
       if (currentId && filteredRequests.some((request) => request.id === currentId)) return currentId;
-      return filteredRequests[filteredRequests.length - 1].id;
+      return filteredRequests[0].id;
     });
   }, [filteredRequests]);
 
@@ -542,6 +610,7 @@ export function useImageConsole() {
     clearQueueTimer();
     wasQueueActiveRef.current = false;
     lastRequestStartedAtRef.current = 0;
+    revokeObjectUrls(collectObjectUrls(requestRecordsRef.current));
     requestRecordsRef.current = [];
     setRequestRecords([]);
     setSelectedRequestId(null);

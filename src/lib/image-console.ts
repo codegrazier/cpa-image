@@ -6,7 +6,7 @@ export const REQUEST_DETAIL_DB_VERSION = 1;
 export const REQUEST_DETAIL_STORE_NAME = "request-details";
 
 export const MIN_REQUEST_CONCURRENCY = 1;
-export const MAX_REQUEST_CONCURRENCY = 10;
+export const MAX_REQUEST_CONCURRENCY = 100;
 export const MIN_REQUEST_INTERVAL_SECONDS = 0;
 export const MAX_REQUEST_INTERVAL_SECONDS = 3600;
 export const MAX_IMAGE_COUNT = 100;
@@ -83,6 +83,9 @@ export interface GeneratedImage {
   src: string;
   kind: "base64" | "url";
   path: string;
+  mimeType?: string;
+  blob?: Blob;
+  objectUrl?: string;
 }
 
 export interface ImageRequestRecord {
@@ -101,6 +104,7 @@ export interface ImageRequestRecord {
   createdAt: number;
   startedAt: number | null;
   endedAt: number | null;
+  completedAt?: number | null;
   images: GeneratedImage[];
   response: unknown;
   error: string;
@@ -407,6 +411,7 @@ export function createRequestRecords(
     createdAt: now,
     startedAt: null,
     endedAt: null,
+    completedAt: null,
     images: [],
     response: null,
     error: "",
@@ -440,6 +445,7 @@ export function prepareRequestForCache(request: ImageRequestRecord): CachedReque
     createdAt: request.createdAt,
     startedAt: request.startedAt,
     endedAt,
+    completedAt: request.completedAt ?? null,
     error,
   };
 }
@@ -463,6 +469,7 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
     createdAt: Number(request.createdAt) || 0,
     startedAt: Number(request.startedAt) || null,
     endedAt: Number(request.endedAt) || (status === "canceled" ? performance.now() : null),
+    completedAt: Number(request.completedAt) || null,
     images: Array.isArray(request.images) ? request.images : [],
     response: request.response ?? null,
     error:
@@ -489,6 +496,22 @@ export function requestMatchesFilter(request: Pick<ImageRequestRecord, "status">
 
 export function filteredRequestRecords(records: ImageRequestRecord[] = [], filter: RequestFilter = "all") {
   return records.filter((request) => requestMatchesFilter(request, filter));
+}
+
+export function sortedRequestRecordsForFilter(records: ImageRequestRecord[] = [], filter: RequestFilter = "all") {
+  const filtered = filteredRequestRecords(records, filter);
+
+  if (filter === "done") {
+    return [...filtered].sort((a, b) => {
+      const completedDiff =
+        (b.completedAt ?? b.endedAt ?? Number.NEGATIVE_INFINITY) -
+        (a.completedAt ?? a.endedAt ?? Number.NEGATIVE_INFINITY);
+      if (completedDiff) return completedDiff;
+      return b.createdAt - a.createdAt;
+    });
+  }
+
+  return [...filtered].reverse();
 }
 
 export function requestFilterCounts(records: ImageRequestRecord[] = []) {
@@ -521,6 +544,17 @@ export function formatRequestTiming(
   return `${waitText} · ${runLabel} ${formatSeconds(runEnd - runStart)}`;
 }
 
+export function formatCompletionTime(completedAt: unknown) {
+  const timestamp = Number(completedAt);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "完成时间未记录";
+
+  const date = new Date(timestamp);
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+  return `完成于 ${hour}:${minute}:${second}`;
+}
+
 export function detectMimeFromBase64(base64: unknown, fallbackFormat = "png") {
   const sample = String(base64 || "").slice(0, 16);
   if (sample.startsWith("iVBOR")) return "image/png";
@@ -535,6 +569,112 @@ function base64ToDataUrl(value: unknown, fallbackFormat = "png") {
   if (text.startsWith("data:image/")) return text;
   const mime = detectMimeFromBase64(text, fallbackFormat);
   return `data:${mime};base64,${text}`;
+}
+
+function dataUrlMimeType(value: unknown, fallbackFormat = "png") {
+  const text = String(value || "").trim();
+  const match = /^data:(image\/[^;,]+);base64,/i.exec(text);
+  return match?.[1] || detectMimeFromBase64(text, fallbackFormat);
+}
+
+function isBlob(value: unknown): value is Blob {
+  return typeof Blob !== "undefined" && value instanceof Blob;
+}
+
+function imageFormatFromMimeType(mimeType: unknown) {
+  return String(mimeType || "png").replace(/^image\//, "") || "png";
+}
+
+export function imageBlobFromDataUrl(value: unknown, fallbackFormat = "png") {
+  const dataUrl = base64ToDataUrl(value, fallbackFormat);
+  const match = /^data:(image\/[^;,]+);base64,(.*)$/is.exec(dataUrl);
+  if (!match || typeof globalThis.atob !== "function" || typeof Blob === "undefined") return null;
+
+  try {
+    const binary = globalThis.atob(match[2].replace(/\s/g, ""));
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+
+    return new Blob([bytes], { type: match[1] });
+  } catch {
+    return null;
+  }
+}
+
+function imageBlobFromImage(image: GeneratedImage) {
+  if (isBlob(image.blob)) return image.blob;
+  if (image.kind !== "base64") return null;
+  return imageBlobFromDataUrl(image.src, imageFormatFromMimeType(image.mimeType));
+}
+
+export function prepareImageForDetailCache(image: GeneratedImage): GeneratedImage | null {
+  if (image.kind === "url") {
+    return {
+      src: image.src,
+      kind: "url",
+      path: image.path,
+      mimeType: image.mimeType,
+    };
+  }
+
+  const blob = imageBlobFromImage(image);
+  if (blob) {
+    return {
+      src: "",
+      kind: "base64",
+      path: image.path,
+      mimeType: blob.type || image.mimeType,
+      blob,
+    };
+  }
+
+  if (String(image.src || "").startsWith("data:image/")) {
+    return {
+      src: image.src,
+      kind: "base64",
+      path: image.path,
+      mimeType: image.mimeType || dataUrlMimeType(image.src),
+    };
+  }
+
+  return null;
+}
+
+export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
+  if (image.kind === "url") {
+    return {
+      src: image.src,
+      kind: "url",
+      path: image.path,
+      mimeType: image.mimeType,
+    };
+  }
+
+  const blob = imageBlobFromImage(image);
+  if (blob && typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+    try {
+      const objectUrl = URL.createObjectURL(blob);
+      return {
+        src: objectUrl,
+        kind: "base64",
+        path: image.path,
+        mimeType: blob.type || image.mimeType,
+        objectUrl,
+      };
+    } catch {
+      // 预览 URL 创建失败时回退到原始 src，避免生成流程被中断。
+    }
+  }
+
+  return {
+    src: image.src,
+    kind: "base64",
+    path: image.path,
+    mimeType: image.mimeType || dataUrlMimeType(image.src),
+  };
 }
 
 function looksLikeBase64Image(value: unknown) {
@@ -563,6 +703,7 @@ export function extractImages(response: unknown, fallbackFormat = "png") {
           src: value.startsWith("data:image/") ? value : value.trim(),
           kind: value.startsWith("data:image/") ? "base64" : "url",
           path,
+          mimeType: value.startsWith("data:image/") ? dataUrlMimeType(value, fallbackFormat) : undefined,
         });
       }
       return;
@@ -584,10 +725,12 @@ export function extractImages(response: unknown, fallbackFormat = "png") {
         const outputFormat = isRecord(value) && typeof value.output_format === "string" ? value.output_format : fallbackFormat;
 
         if (base64Keys.has(key) && looksLikeBase64Image(text)) {
+          const src = base64ToDataUrl(text, outputFormat);
           addImage({
-            src: base64ToDataUrl(text, outputFormat),
+            src,
             kind: "base64",
             path: childPath,
+            mimeType: dataUrlMimeType(src, outputFormat),
           });
           continue;
         }
@@ -643,7 +786,7 @@ export function sanitizeResponseForDisplay(value: unknown): unknown {
   function scrub(node: unknown, key = ""): unknown {
     if (typeof node === "string") {
       if ((largeImageKeys.has(key) || node.startsWith("data:image/")) && node.length > 240) {
-        return `${node.slice(0, 120)}... [${node.length} chars]`;
+        return `[image data omitted, ${node.length} chars]`;
       }
       return node;
     }
