@@ -2,7 +2,9 @@ import {
   cachedRequestRecords,
   DEFAULTS,
   LAST_PROMPT_KEY,
+  normalizePromptHistory,
   prepareImageForDetailCache,
+  PROMPT_HISTORY_KEY,
   REQUEST_CACHE_KEY,
   REQUEST_DETAIL_DB_NAME,
   REQUEST_DETAIL_DB_VERSION,
@@ -76,6 +78,23 @@ export function saveLastPrompt(prompt: string) {
     localStorage.setItem(LAST_PROMPT_KEY, String(prompt || ""));
   } catch {
     // 忽略草稿保存失败，避免影响用户继续编辑。
+  }
+}
+
+export function loadPromptHistory() {
+  try {
+    const stored = localStorage.getItem(PROMPT_HISTORY_KEY);
+    return normalizePromptHistory(stored ? JSON.parse(stored) : []);
+  } catch {
+    return [];
+  }
+}
+
+export function savePromptHistory(history: string[]) {
+  try {
+    localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(normalizePromptHistory(history)));
+  } catch {
+    // 历史 Prompt 只是辅助信息，写入失败时不影响生成。
   }
 }
 

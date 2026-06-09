@@ -6,6 +6,7 @@ import {
   FileJsonIcon,
   ImageIcon,
   Loader2Icon,
+  MessageSquareIcon,
   PlayIcon,
   RotateCcwIcon,
   SettingsIcon,
@@ -30,7 +31,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useImageConsole } from "@/hooks/use-image-console";
-import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, formatCompletionTime, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type RequestFilter } from "@/lib/image-console";
+import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, formatCompletionTime, generationMethodDisplayName, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type RequestFilter } from "@/lib/image-console";
 import { cn } from "@/lib/utils";
 
 const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
@@ -39,10 +40,6 @@ function statusVariant(status: string) {
   if (status === "error" || status === "canceled") return "destructive" as const;
   if (status === "done") return "default" as const;
   return "secondary" as const;
-}
-
-function generationMethodLabel(request: ImageRequestRecord) {
-  return request.method || "gpt-image-2";
 }
 
 function selectedRequestEmptyText(request: ImageRequestRecord | null) {
@@ -102,10 +99,9 @@ function RequestRow({
   payloadSize: string;
   onSelect: () => void;
 }) {
-  const requestSummary =
-    request.status === "done"
-      ? `${formatCompletionTime(request.completedAt)} · ${imageCount} 张图片`
-      : request.error || `${request.method || "gpt-image-2"} · ${payloadSize} · n=1`;
+  const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
+  const requestDetail =
+    request.error || (request.status === "done" ? `${formatCompletionTime(request.completedAt)} · ${imageCount} 张图片` : "");
 
   return (
     <button
@@ -121,9 +117,14 @@ function RequestRow({
       <span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
         <strong className="block min-w-0 truncate text-sm font-semibold">{request.title}</strong>
         <span className="block min-w-0 truncate text-xs font-medium text-muted-foreground">{timing}</span>
-        <span className="line-clamp-2 min-w-0 break-all text-xs text-muted-foreground" title={requestSummary}>
+        <span className="block min-w-0 truncate text-xs text-muted-foreground" title={requestSummary}>
           {requestSummary}
         </span>
+        {requestDetail ? (
+          <span className="block min-w-0 truncate text-xs text-muted-foreground" title={requestDetail}>
+            {requestDetail}
+          </span>
+        ) : null}
       </span>
       <span className="flex shrink-0 items-start">
         <Badge variant={statusVariant(request.status)}>{REQUEST_STATUS_LABELS[request.status] || request.status}</Badge>
@@ -298,9 +299,9 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
                 <Badge
                   variant="secondary"
                   className="shrink-0"
-                  aria-label={`生成方式：${generationMethodLabel(selectedRequest)}`}
+                  aria-label={`生成方式：${generationMethodDisplayName(selectedRequest.method)}`}
                 >
-                  {generationMethodLabel(selectedRequest)}
+                  {generationMethodDisplayName(selectedRequest.method)}
                 </Badge>
               )}
             </div>
@@ -349,8 +350,73 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
   );
 }
 
+function PromptHistoryPanel({
+  promptHistory,
+  onSelectPrompt,
+  onDeletePrompt,
+}: {
+  promptHistory: string[];
+  onSelectPrompt: (value: string) => void;
+  onDeletePrompt: (value: string) => void;
+}) {
+  return (
+    <section className="flex min-h-0 flex-1 flex-col gap-2" aria-label="历史 Prompt">
+      <div className="flex items-center justify-between gap-2">
+        <FieldTitle>历史 Prompt</FieldTitle>
+        <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+          {promptHistory.length}/20
+        </span>
+      </div>
+
+      {promptHistory.length ? (
+        <ScrollArea className="min-h-0 flex-1 rounded-md border">
+          <div className="flex min-w-0 flex-col">
+            {promptHistory.map((item) => (
+              <div key={item} className="flex min-w-0 items-center gap-1 border-b last:border-b-0">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                  title={item}
+                  onClick={() => onSelectPrompt(item)}
+                >
+                  {item}
+                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="mr-1 shrink-0"
+                  aria-label={`删除历史 Prompt：${item}`}
+                  onClick={() => onDeletePrompt(item)}
+                >
+                  <Trash2Icon data-icon="inline-start" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      ) : (
+        <div className="min-h-0 flex-1 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          暂无历史 Prompt
+        </div>
+      )}
+    </section>
+  );
+}
+
 function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
-  const { settings, prompt, connectionStatus, setPrompt, updateSettings, setSettingsOpen, enqueueGeneration } = consoleState;
+  const {
+    settings,
+    prompt,
+    promptHistory,
+    connectionStatus,
+    setPrompt,
+    updateSettings,
+    setSettingsOpen,
+    enqueueGeneration,
+    selectPromptHistory,
+    deletePromptHistory,
+  } = consoleState;
 
   function submitGeneration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -381,26 +447,16 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
           <Textarea
             id="prompt"
             name="prompt"
-            rows={8}
+            rows={4}
             maxLength={32000}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             placeholder="一只半透明玻璃质感的机械水母，漂浮在清晨的城市天台上，产品摄影，细节清晰"
             required
-            className="min-h-48 resize-y"
+            className="min-h-24 resize-y"
           />
         </Field>
 
-        <Field orientation="horizontal">
-          <Checkbox
-            id="strictPrompt"
-            checked={settings.strictPrompt}
-            onCheckedChange={(checked) => updateSettings("strictPrompt", checked === true)}
-          />
-          <FieldContent>
-            <FieldLabel htmlFor="strictPrompt">保持原始 Prompt</FieldLabel>
-          </FieldContent>
-        </Field>
       </FieldGroup>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -442,16 +498,36 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
           options={OUTPUT_FORMAT_OPTIONS}
           onValueChange={(value) => updateSettings("outputFormat", value as AppSettings["outputFormat"])}
         />
+        <Field orientation="horizontal" className="h-9 self-end rounded-md border px-3 py-1">
+          <Checkbox
+            id="strictPrompt"
+            checked={settings.strictPrompt}
+            onCheckedChange={(checked) => updateSettings("strictPrompt", checked === true)}
+          />
+          <FieldContent>
+            <FieldLabel htmlFor="strictPrompt">保持原始 Prompt</FieldLabel>
+          </FieldContent>
+        </Field>
       </div>
 
-      <div className="mt-auto grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <PromptHistoryPanel
+        promptHistory={promptHistory}
+        onSelectPrompt={selectPromptHistory}
+        onDeletePrompt={deletePromptHistory}
+      />
+
+      <div className="grid grid-cols-1 gap-2">
         <Button type="submit" size="lg">
           <PlayIcon data-icon="inline-start" />
           gpt-image-2
         </Button>
         <Button type="button" variant="secondary" size="lg" onClick={() => enqueueGeneration("responses")}>
           <ImageIcon data-icon="inline-start" />
-          image_generation
+          responses
+        </Button>
+        <Button type="button" variant="outline" size="lg" onClick={() => enqueueGeneration("completions")}>
+          <MessageSquareIcon data-icon="inline-start" />
+          completions
         </Button>
       </div>
     </form>
@@ -504,7 +580,7 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="imageGenerationModel">image_generation 模型</FieldLabel>
+            <FieldLabel htmlFor="imageGenerationModel">图像模型</FieldLabel>
             <Input
               id="imageGenerationModel"
               type="text"

@@ -1,6 +1,6 @@
 # GPT Image 2 Console
 
-一个 React + TypeScript 前端 Web 应用，用于配置 CLIProxyAPI 的 OpenAI 兼容地址和 API Key，并调用 `gpt-image-2` 或 Responses `image_generation` 生成图片。
+一个 React + TypeScript 前端 Web 应用，用于配置 CLIProxyAPI 的 OpenAI 兼容地址和 API Key，并调用 `gpt-image-2`、Responses 或 Chat Completions 生成图片。
 
 界面使用 Vite、Tailwind CSS 和 shadcn/ui 构建，支持请求队列、并发控制、请求间隔、取消请求、本地历史缓存、Prompt 复用、图片下载和响应 JSON 查看。
 
@@ -13,7 +13,7 @@ npm start
 
 然后打开 `http://localhost:5174`。
 
-默认 API URL 是 `http://localhost:8317/v1`。如果你的 CLIProxyAPI 部署在其他地址，也可以直接填根地址，例如 `https://proxy.example.com`，应用会自动拼成 `/v1/images/generations`。
+默认 API URL 是 `http://localhost:8317/v1`。如果你的 CLIProxyAPI 部署在其他地址，也可以直接填根地址，例如 `https://proxy.example.com`，应用会自动拼成 `/v1/images/generations`、`/v1/responses` 或 `/v1/chat/completions`。
 
 ## CLIProxyAPI 配置要点
 

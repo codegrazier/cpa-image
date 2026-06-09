@@ -1,6 +1,7 @@
 export const STORAGE_KEY = "gpt-image-2-console-settings";
 export const REQUEST_CACHE_KEY = "gpt-image-2-console-requests";
 export const LAST_PROMPT_KEY = "gpt-image-2-console-last-prompt";
+export const PROMPT_HISTORY_KEY = "gpt-image-2-console-prompt-history";
 export const REQUEST_DETAIL_DB_NAME = "gpt-image-2-console";
 export const REQUEST_DETAIL_DB_VERSION = 1;
 export const REQUEST_DETAIL_STORE_NAME = "request-details";
@@ -10,6 +11,7 @@ export const MAX_REQUEST_CONCURRENCY = 100;
 export const MIN_REQUEST_INTERVAL_SECONDS = 0;
 export const MAX_REQUEST_INTERVAL_SECONDS = 3600;
 export const MAX_IMAGE_COUNT = 100;
+export const MAX_PROMPT_HISTORY = 20;
 
 export const SIZE_OPTIONS = [
   "auto",
@@ -30,7 +32,7 @@ export type ImageSize = (typeof SIZE_OPTIONS)[number];
 export type ImageQuality = (typeof QUALITY_OPTIONS)[number];
 export type ImageBackground = (typeof BACKGROUND_OPTIONS)[number];
 export type ImageOutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number];
-export type GenerationMethod = "gpt-image-2" | "image_generation";
+export type GenerationMethod = "gpt-image-2" | "image_generation" | "completions";
 export type RequestStatus = "queued" | "running" | "done" | "error" | "canceled" | string;
 export type RequestFilter = "all" | "active" | "done" | "failed";
 
@@ -62,10 +64,23 @@ export interface ImageToolPayload {
   output_format?: string;
 }
 
+export interface ChatCompletionMessage {
+  role: "system" | "user" | "assistant" | string;
+  content:
+    | string
+    | Array<{
+        type?: string;
+        text?: string;
+        [key: string]: unknown;
+      }>;
+  [key: string]: unknown;
+}
+
 export interface RequestPayload {
   model?: string;
   prompt?: string;
   input?: string;
+  messages?: ChatCompletionMessage[];
   n?: number | string;
   size?: string;
   quality?: string;
@@ -157,6 +172,38 @@ export const REQUEST_FILTER_EMPTY_TEXT: Record<RequestFilter, string> = {
   failed: "暂无失败或取消请求",
 };
 
+export function generationMethodDisplayName(method: GenerationMethod | "" | null | undefined) {
+  if (method === "image_generation") return "responses";
+  return method || "gpt-image-2";
+}
+
+export function normalizePromptHistory(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const item of value) {
+    const prompt = String(item || "").trim();
+    if (!prompt || seen.has(prompt)) continue;
+    seen.add(prompt);
+    normalized.push(prompt);
+
+    if (normalized.length >= MAX_PROMPT_HISTORY) break;
+  }
+
+  return normalized;
+}
+
+export function addPromptToHistory(history: unknown, prompt: unknown) {
+  return normalizePromptHistory([String(prompt || "").trim(), ...normalizePromptHistory(history)]);
+}
+
+export function removePromptFromHistory(history: unknown, prompt: unknown) {
+  const target = String(prompt || "").trim();
+  return normalizePromptHistory(history).filter((item) => item !== target);
+}
+
 const STRICT_PROMPT_PREFIX = [
   "请把下面的原始 Prompt 当作最终图像指令执行。",
   "不要改写、扩写、翻译、润色、补充主体、改变构图、改变风格、添加未出现的元素。",
@@ -197,6 +244,10 @@ export function normalizeResponsesEndpoint(baseUrl: string) {
   return routeFromBaseUrl(baseUrl, "/v1/responses");
 }
 
+export function normalizeChatCompletionsEndpoint(baseUrl: string) {
+  return routeFromBaseUrl(baseUrl, "/v1/chat/completions");
+}
+
 export function normalizeModelsEndpoint(baseUrl: string) {
   return routeFromBaseUrl(baseUrl, "/v1/models");
 }
@@ -231,6 +282,16 @@ export function payloadImageTool(payload: RequestPayload | undefined | null) {
 export function payloadPrompt(payload: RequestPayload | undefined | null) {
   if (typeof payload?.prompt === "string") return payload.prompt;
   if (typeof payload?.input === "string") return payload.input;
+  if (Array.isArray(payload?.messages)) {
+    const message = [...payload.messages].reverse().find((item) => item?.role === "user") || payload.messages[0];
+    if (typeof message?.content === "string") return message.content;
+    if (Array.isArray(message?.content)) {
+      return message.content
+        .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+        .join("\n")
+        .trim();
+    }
+  }
   return "";
 }
 
@@ -323,6 +384,44 @@ export function buildResponsesImagePayload(
   };
 }
 
+export function buildChatCompletionsImagePayload(
+  values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">,
+): RequestPayload {
+  const prompt = validatePromptAndOutput({
+    prompt: values.prompt,
+    background: values.background || DEFAULTS.background,
+    outputFormat: values.outputFormat || DEFAULTS.outputFormat,
+  });
+  const model = String(values.imageGenerationModel || DEFAULTS.imageGenerationModel).trim();
+  imageCountFromValue(values.n || DEFAULTS.n);
+
+  if (!model) {
+    throw new Error("completions 模型不能为空。");
+  }
+
+  return {
+    model,
+    messages: [
+      {
+        role: "user",
+        content: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt),
+      },
+    ],
+    tools: [
+      {
+        type: "image_generation",
+        size: values.size || DEFAULTS.size,
+        quality: values.quality || DEFAULTS.quality,
+        background: values.background || DEFAULTS.background,
+        output_format: values.outputFormat || DEFAULTS.outputFormat,
+      },
+    ],
+    tool_choice: {
+      type: "image_generation",
+    },
+  };
+}
+
 export function buildGenerationRequests(payload: RequestPayload) {
   const requestedCount = Number.parseInt(String(payload.n), 10);
 
@@ -337,6 +436,16 @@ export function buildResponsesImageRequests(payload: RequestPayload, count: unkn
 
   return Array.from({ length: requestedCount }, () => ({
     ...payload,
+    tools: payload.tools?.map((tool) => ({ ...tool })) || [],
+  }));
+}
+
+export function buildChatCompletionsImageRequests(payload: RequestPayload, count: unknown) {
+  const requestedCount = imageCountFromValue(count);
+
+  return Array.from({ length: requestedCount }, () => ({
+    ...payload,
+    messages: payload.messages?.map((message) => ({ ...message })) || [],
     tools: payload.tools?.map((tool) => ({ ...tool })) || [],
   }));
 }
@@ -848,6 +957,11 @@ export function responseErrorMessage(status: number, body: unknown) {
 export function imageDownloadName(request: Pick<ImageRequestRecord, "payload" | "title" | "method">, index = 0) {
   const format = payloadOutputFormat(request?.payload);
   const title = String(request?.title || "image").replace(/[^\w.-]+/g, "-");
-  const prefix = request?.method === "image_generation" ? "image-generation" : "gpt-image-2";
+  const prefix =
+    request?.method === "image_generation"
+      ? "image-generation"
+      : request?.method === "completions"
+        ? "completions"
+        : "gpt-image-2";
   return `${prefix}-${title}-${index + 1}.${format}`;
 }

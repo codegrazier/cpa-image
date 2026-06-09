@@ -3,6 +3,9 @@ import { toast } from "sonner";
 
 import { fetchModels, postImageGeneration } from "@/lib/api";
 import {
+  addPromptToHistory,
+  buildChatCompletionsImagePayload,
+  buildChatCompletionsImageRequests,
   buildGenerationRequests,
   buildPayload,
   buildResponsesImagePayload,
@@ -11,9 +14,11 @@ import {
   DEFAULTS,
   extractImages,
   formatRequestTiming,
+  generationMethodDisplayName,
   imageCountFromValue,
   imageDownloadName,
   missingImageOutputMessage,
+  normalizeChatCompletionsEndpoint,
   normalizeImageEndpoint,
   normalizeModelsEndpoint,
   normalizeRequestConcurrency,
@@ -26,6 +31,7 @@ import {
   requestControlSummary,
   requestFilterCounts,
   requestImageCount,
+  removePromptFromHistory,
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
   sortedRequestRecordsForFilter,
@@ -39,10 +45,12 @@ import {
   clearCachedRequests,
   loadCachedRequests,
   loadLastPrompt,
+  loadPromptHistory,
   loadSettings,
   resetSettings as resetStoredSettings,
   saveCachedRequests,
   saveLastPrompt,
+  savePromptHistory,
   saveRequestDetails,
   saveSettings,
 } from "@/lib/storage";
@@ -153,9 +161,18 @@ function initialPrompt() {
   }
 }
 
+function initialPromptHistory() {
+  try {
+    return loadPromptHistory();
+  } catch {
+    return [];
+  }
+}
+
 export function useImageConsole() {
   const [settings, setSettings] = useState<AppSettings>(() => initialSettings());
   const [prompt, setPromptState] = useState(() => initialPrompt());
+  const [promptHistory, setPromptHistory] = useState<string[]>(() => initialPromptHistory());
   const [requestRecords, setRequestRecords] = useState<ImageRequestRecord[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedRequestFilter, setSelectedRequestFilter] = useState<RequestFilter>("all");
@@ -444,7 +461,8 @@ export function useImageConsole() {
     const imageGenerationModel = String(settings.imageGenerationModel || DEFAULTS.imageGenerationModel).trim();
     return [
       `gpt-image-2: ${normalizeImageEndpoint(baseUrl)}`,
-      `image_generation (${imageGenerationModel}): ${normalizeResponsesEndpoint(baseUrl)}`,
+      `responses (${imageGenerationModel}): ${normalizeResponsesEndpoint(baseUrl)}`,
+      `completions (${imageGenerationModel}): ${normalizeChatCompletionsEndpoint(baseUrl)}`,
     ].join("\n");
   }, [settings.baseUrl, settings.imageGenerationModel]);
 
@@ -466,6 +484,29 @@ export function useImageConsole() {
     saveLastPrompt(value);
   }, []);
 
+  const updatePromptHistory = useCallback((updater: (history: string[]) => string[]) => {
+    setPromptHistory((current) => {
+      const next = updater(current);
+      savePromptHistory(next);
+      return next;
+    });
+  }, []);
+
+  const selectPromptHistory = useCallback(
+    (value: string) => {
+      setPrompt(value);
+      setStatusMessage({ state: "历史 Prompt 已回填", detail: value });
+    },
+    [setPrompt],
+  );
+
+  const deletePromptHistory = useCallback(
+    (value: string) => {
+      updatePromptHistory((history) => removePromptFromHistory(history, value));
+    },
+    [updatePromptHistory],
+  );
+
   const updateSettings = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((current) => ({
       ...current,
@@ -481,7 +522,7 @@ export function useImageConsole() {
     setConnectionStatus({ label: "已保存", tone: "ok" });
     setStatusMessage({
       state: "设置已保存",
-      detail: `${requestControlSummary(normalized)} · image_generation ${normalized.imageGenerationModel}`,
+      detail: `${requestControlSummary(normalized)} · 图像模型 ${normalized.imageGenerationModel}`,
     });
     clearQueueTimer();
     setSettingsOpen(false);
@@ -514,7 +555,7 @@ export function useImageConsole() {
   }, []);
 
   const enqueueGeneration = useCallback(
-    (mode: "images" | "responses") => {
+    (mode: "images" | "responses" | "completions") => {
       const currentSettings = normalizeSettings(settingsRef.current);
       const values = { ...currentSettings, prompt };
       saveLastPrompt(prompt);
@@ -524,7 +565,12 @@ export function useImageConsole() {
       let method: GenerationMethod;
 
       try {
-        if (mode === "responses") {
+        if (mode === "completions") {
+          const payload = buildChatCompletionsImagePayload(values);
+          requestPayloads = buildChatCompletionsImageRequests(payload, values.n);
+          endpoint = normalizeChatCompletionsEndpoint(values.baseUrl);
+          method = "completions";
+        } else if (mode === "responses") {
           const payload = buildResponsesImagePayload(values);
           requestPayloads = buildResponsesImageRequests(payload, values.n);
           endpoint = normalizeResponsesEndpoint(values.baseUrl);
@@ -545,6 +591,7 @@ export function useImageConsole() {
       saveSettings(currentSettings);
       setSettings(currentSettings);
       settingsRef.current = currentSettings;
+      updatePromptHistory((history) => addPromptToHistory(history, prompt));
 
       const now = performance.now();
       const date = new Date();
@@ -564,12 +611,12 @@ export function useImageConsole() {
       setSelectedRequestId(newRequests[0]?.id || selectedRequestId);
       setStatusMessage({
         state: "请求已加入队列",
-        detail: `${method} · ${newRequests.length} 个新请求 · ${requestControlSummary(currentSettings)} · ${endpoint}`,
+        detail: `${generationMethodDisplayName(method)} · ${newRequests.length} 个新请求 · ${requestControlSummary(currentSettings)} · ${endpoint}`,
       });
       scheduleQueueRef.current();
       return true;
     },
-    [commitRecords, prompt, selectedRequestId],
+    [commitRecords, prompt, selectedRequestId, updatePromptHistory],
   );
 
   const cancelRequest = useCallback(
@@ -640,6 +687,7 @@ export function useImageConsole() {
   return {
     settings,
     prompt,
+    promptHistory,
     requestRecords,
     filteredRequests,
     selectedRequest,
@@ -671,6 +719,8 @@ export function useImageConsole() {
     cancelRequest,
     clearAllRequests,
     reusePrompt,
+    selectPromptHistory,
+    deletePromptHistory,
     payloadSize,
     requestImageCount,
     formatRequestTiming,

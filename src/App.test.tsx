@@ -55,6 +55,7 @@ describe("App", () => {
     expect(screen.getByRole("dialog", { name: "连接" })).toBeInTheDocument();
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/images\/generations/)).toBeInTheDocument();
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/responses/)).toBeInTheDocument();
+    expect(screen.getByText(/http:\/\/localhost:8317\/v1\/chat\/completions/)).toBeInTheDocument();
   });
 
   test("hydrates saved settings into the settings dialog", async () => {
@@ -113,7 +114,27 @@ describe("App", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe("gpt-image-2");
   });
 
-  test("submits image_generation requests to the responses endpoint", async () => {
+  test("records prompt history, refills prompt, and deletes history rows", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    renderApp();
+    const prompt = await screen.findByLabelText("Prompt");
+    await user.type(prompt, "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+
+    expect(await screen.findByRole("button", { name: "glass jellyfish" })).toBeInTheDocument();
+    await user.clear(prompt);
+    await user.click(screen.getByRole("button", { name: "glass jellyfish" }));
+    expect(prompt).toHaveValue("glass jellyfish");
+
+    await user.click(screen.getByRole("button", { name: "删除历史 Prompt：glass jellyfish" }));
+    expect(screen.queryByRole("button", { name: "glass jellyfish" })).not.toBeInTheDocument();
+    expect(screen.getByText("暂无历史 Prompt")).toBeInTheDocument();
+  });
+
+  test("submits responses requests to the responses endpoint", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -126,13 +147,86 @@ describe("App", () => {
 
     renderApp();
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
-    await user.click(screen.getByRole("button", { name: /^image_generation$/ }));
+    await user.click(screen.getByRole("button", { name: /^responses$/ }));
 
     expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
-    expect(screen.getByLabelText("生成方式：image_generation")).toBeInTheDocument();
+    expect(screen.getByLabelText("生成方式：responses")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8317/v1/responses", expect.objectContaining({ method: "POST" }));
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("gpt-5.5");
+    expect(body.tools[0].type).toBe("image_generation");
+  });
+
+  test("shows responses labels for running response requests", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^responses$/ }));
+
+    expect(await screen.findByText("responses · auto")).toBeInTheDocument();
+    expect(screen.getByLabelText("生成方式：responses")).toBeInTheDocument();
+    expect(screen.queryByText(/responses · auto · n=1/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/image_generation · auto/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("生成方式：image_generation")).not.toBeInTheDocument();
+  });
+
+  test("keeps request method and size visible when responses requests fail", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "upstream returned a very long failure detail ".repeat(6),
+            },
+          }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^responses$/ }));
+
+    expect(await screen.findByText("responses · auto")).toBeInTheDocument();
+    expect(screen.getAllByText(/HTTP 500 upstream returned a very long failure detail/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/responses · auto · n=1/)).not.toBeInTheDocument();
+  });
+
+  test("submits completions requests to the chat completions endpoint", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { image_base64: PNG_BASE64, output_format: "png" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^completions$/ }));
+
+    expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+    expect(screen.getByLabelText("生成方式：completions")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8317/v1/chat/completions",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.model).toBe("gpt-5.5");
+    expect(body.messages[0].role).toBe("user");
+    expect(body.messages[0].content).toMatch(/原始 Prompt:\nglass jellyfish/);
     expect(body.tools[0].type).toBe("image_generation");
   });
 

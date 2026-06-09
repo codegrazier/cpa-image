@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  addPromptToHistory,
   applyPromptPolicy,
+  buildChatCompletionsImagePayload,
+  buildChatCompletionsImageRequests,
   buildGenerationRequests,
   buildPayload,
   buildResponsesImagePayload,
@@ -13,9 +16,12 @@ import {
   filteredRequestRecords,
   formatCompletionTime,
   formatRequestTiming,
+  generationMethodDisplayName,
   imageBlobFromDataUrl,
   missingImageOutputMessage,
+  normalizeChatCompletionsEndpoint,
   normalizeImageEndpoint,
+  normalizePromptHistory,
   normalizeModelsEndpoint,
   normalizeRequestConcurrency,
   normalizeRequestIntervalSeconds,
@@ -23,6 +29,7 @@ import {
   prepareImageForDetailCache,
   prepareImageForRuntime,
   requestFilterCounts,
+  removePromptFromHistory,
   responseBodyHasError,
   responseErrorMessage,
   restoreCachedRequest,
@@ -57,6 +64,18 @@ describe("image console logic", () => {
     expect(normalizeResponsesEndpoint("http://localhost:8317/v1")).toBe("http://localhost:8317/v1/responses");
     expect(normalizeResponsesEndpoint("https://proxy.example.com/openai/v1/")).toBe(
       "https://proxy.example.com/openai/v1/responses",
+    );
+  });
+
+  test("normalizes base URLs into chat completions endpoints", () => {
+    expect(normalizeChatCompletionsEndpoint("http://localhost:8317")).toBe(
+      "http://localhost:8317/v1/chat/completions",
+    );
+    expect(normalizeChatCompletionsEndpoint("http://localhost:8317/v1")).toBe(
+      "http://localhost:8317/v1/chat/completions",
+    );
+    expect(normalizeChatCompletionsEndpoint("https://proxy.example.com/openai/v1/")).toBe(
+      "https://proxy.example.com/openai/v1/chat/completions",
     );
   });
 
@@ -125,6 +144,41 @@ describe("image console logic", () => {
     });
   });
 
+  test("builds chat completions image payload with messages and image tool options", () => {
+    expect(
+      buildChatCompletionsImagePayload({
+        imageGenerationModel: "gpt-5.6",
+        prompt: "glass jellyfish",
+        strictPrompt: false,
+        n: 2,
+        size: "1024x1536",
+        quality: "high",
+        background: "opaque",
+        outputFormat: "webp",
+      }),
+    ).toEqual({
+      model: "gpt-5.6",
+      messages: [
+        {
+          role: "user",
+          content: "glass jellyfish",
+        },
+      ],
+      tools: [
+        {
+          type: "image_generation",
+          size: "1024x1536",
+          quality: "high",
+          background: "opaque",
+          output_format: "webp",
+        },
+      ],
+      tool_choice: {
+        type: "image_generation",
+      },
+    });
+  });
+
   test("adds strict prompt policy by default", () => {
     const payload = buildPayload({
       model: "gpt-image-2",
@@ -147,6 +201,12 @@ describe("image console logic", () => {
 
     expect(stripPromptPolicy(wrappedPrompt)).toBe("glass jellyfish");
     expect(reusablePromptForRequest({ payload: { prompt: wrappedPrompt }, sourcePrompt: "" })).toBe("glass jellyfish");
+    expect(
+      reusablePromptForRequest({
+        payload: { messages: [{ role: "user", content: wrappedPrompt }] },
+        sourcePrompt: "",
+      }),
+    ).toBe("glass jellyfish");
   });
 
   test("splits multi-image requests into one-image requests by default", () => {
@@ -190,6 +250,25 @@ describe("image console logic", () => {
     expect(requests).toHaveLength(3);
     expect(requests[0].model).toBe("gpt-5.5");
     expect(requests[0].tools?.[0].type).toBe("image_generation");
+    expect(requests[0].tools?.[0]).not.toBe(requests[1].tools?.[0]);
+  });
+
+  test("splits chat completions image requests by count", () => {
+    const payload = buildChatCompletionsImagePayload({
+      prompt: "glass jellyfish",
+      strictPrompt: false,
+      n: 3,
+      size: "1024x1024",
+      outputFormat: "png",
+    });
+
+    const requests = buildChatCompletionsImageRequests(payload, 3);
+
+    expect(requests).toHaveLength(3);
+    expect(requests[0].model).toBe("gpt-5.5");
+    expect(requests[0].messages?.[0].content).toBe("glass jellyfish");
+    expect(requests[0].tools?.[0].type).toBe("image_generation");
+    expect(requests[0].messages?.[0]).not.toBe(requests[1].messages?.[0]);
     expect(requests[0].tools?.[0]).not.toBe(requests[1].tools?.[0]);
   });
 
@@ -269,6 +348,28 @@ describe("image console logic", () => {
     expect(normalizeRequestIntervalSeconds("-1")).toBe(0);
     expect(normalizeRequestIntervalSeconds("9999")).toBe(3600);
     expect(normalizeRequestIntervalSeconds("bad")).toBe(60);
+  });
+
+  test("maps internal generation methods to user-facing labels", () => {
+    expect(generationMethodDisplayName("gpt-image-2")).toBe("gpt-image-2");
+    expect(generationMethodDisplayName("image_generation")).toBe("responses");
+    expect(generationMethodDisplayName("completions")).toBe("completions");
+    expect(generationMethodDisplayName("")).toBe("gpt-image-2");
+  });
+
+  test("deduplicates prompt history and keeps the newest 20 prompts", () => {
+    const prompts = Array.from({ length: 25 }, (_, index) => `prompt ${index}`);
+    const normalized = normalizePromptHistory(["prompt 1", "", "prompt 1", ...prompts]);
+    const updated = addPromptToHistory(normalized, "prompt 8");
+    const removed = removePromptFromHistory(updated, "prompt 8");
+
+    expect(normalized).toHaveLength(20);
+    expect(normalized[0]).toBe("prompt 1");
+    expect(normalized[1]).toBe("prompt 0");
+    expect(new Set(normalized).size).toBe(20);
+    expect(updated[0]).toBe("prompt 8");
+    expect(updated).toHaveLength(20);
+    expect(removed).not.toContain("prompt 8");
   });
 
   test("sorts done request lists by completion time descending", () => {
