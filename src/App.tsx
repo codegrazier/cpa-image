@@ -14,7 +14,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import type { FormEvent, ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +32,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useImageConsole } from "@/hooks/use-image-console";
-import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, formatCompletionTime, generationMethodDisplayName, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type PromptHistoryEntry, type RequestFilter } from "@/lib/image-console";
+import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, formatCompletionTime, generationMethodDisplayName, requestControlSummary, revisedPromptForResponse, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type PromptHistoryEntry, type RequestFilter } from "@/lib/image-console";
 import { cn } from "@/lib/utils";
 
 const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
@@ -115,19 +115,27 @@ function RequestRow({
   const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
   const requestDetail =
     request.error || (request.status === "done" ? `${formatCompletionTime(request.completedAt)} · ${imageCount} 张图片` : "");
+  const thumbnail = request.images?.[0] || null;
 
   return (
     <button
       type="button"
       className={cn(
-        "flex min-h-22 w-full items-stretch gap-3 overflow-hidden rounded-md border bg-card p-3 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow]",
+        "grid min-h-22 w-full grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-4 overflow-hidden rounded-md border bg-card p-2.5 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow]",
         "hover:border-ring hover:shadow-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
         selected && "border-ring ring-[3px] ring-ring/20",
       )}
       onClick={onSelect}
       aria-label={`查看 ${request.title} 的生成结果`}
     >
-      <span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
+      <span className="flex size-[5.5rem] shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/20">
+        {thumbnail ? (
+          <img src={thumbnail.src} alt="" aria-hidden="true" className="block h-full w-full object-cover object-center" />
+        ) : (
+          <ImageIcon aria-hidden="true" className="size-6 text-muted-foreground" />
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col gap-1 overflow-hidden py-0.5">
         <strong className="block min-w-0 truncate text-sm font-semibold">{request.title}</strong>
         <span className="block min-w-0 truncate text-xs font-medium text-muted-foreground">{timing}</span>
         <span className="block min-w-0 truncate text-xs text-muted-foreground" title={requestSummary}>
@@ -139,7 +147,7 @@ function RequestRow({
           </span>
         ) : null}
       </span>
-      <span className="flex shrink-0 items-start">
+      <span className="flex shrink-0 items-start pt-0.5">
         <Badge variant={statusVariant(request.status)}>{REQUEST_STATUS_LABELS[request.status] || request.status}</Badge>
       </span>
     </button>
@@ -151,44 +159,53 @@ function RequestListPanel({
   selectedRequestId,
   selectedRequestFilter,
   requestCounts,
-  requestListCount,
   now,
   onSelectRequest,
   onFilterChange,
-  onOpenClear,
+  onOpenClearAll,
+  onOpenClearFailed,
   formatRequestTiming,
   requestImageCount,
   payloadSize,
 }: ReturnType<typeof useImageConsole> & {
   onSelectRequest: (id: string) => void;
   onFilterChange: (filter: RequestFilter) => void;
-  onOpenClear: () => void;
+  onOpenClearAll: () => void;
+  onOpenClearFailed: () => void;
 }) {
   const hasRequests = requestCounts.all > 0;
+  const hasFailedRequests = requestCounts.failed > 0;
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-col rounded-lg border bg-card shadow-sm" aria-label="请求列表">
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b px-4">
-        <div className="grid min-w-0 gap-1">
-          <strong className="text-sm leading-none">请求列表</strong>
-          <span className="truncate text-xs font-medium text-muted-foreground">{requestListCount}</span>
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-2">
+        <strong className="min-w-0 shrink-0 truncate text-sm leading-none">请求列表</strong>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="outline" size="sm" disabled={!hasRequests} onClick={onOpenClearAll}>
+                <Trash2Icon data-icon="inline-start" />
+                清空全部
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>删除所有请求记录和本地图片详情</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!hasFailedRequests}
+                onClick={onOpenClearFailed}
+              >
+                <AlertCircleIcon data-icon="inline-start" />
+                清空失败
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>删除失败和已取消请求</TooltipContent>
+          </Tooltip>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!hasRequests}
-              onClick={onOpenClear}
-              aria-label="清空请求缓存"
-            >
-              <Trash2Icon data-icon="inline-start" />
-              清空
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>删除请求记录和本地图片详情</TooltipContent>
-        </Tooltip>
       </div>
 
       <div className="border-b px-3 py-2">
@@ -284,6 +301,7 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
   const {
     selectedRequest,
     statusMessage,
+    settings,
     selectedRequestTiming,
     selectedRequestJson,
     selectedRequestDownload,
@@ -295,62 +313,70 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
   const canCancel = selectedRequest?.status === "queued" || selectedRequest?.status === "running";
   const canDownload = selectedRequest?.status === "done" && !selectedRequest.detailsMissing && selectedRequestDownload;
   const canReuse = Boolean(selectedRequest && reusablePromptForRequest(selectedRequest));
+  const inputPromptTooltip = selectedRequest?.sourcePrompt?.trim() || "暂无输入 Prompt";
+  const revisedPromptTooltip = revisedPromptForResponse(selectedRequest?.response) || "未找到 revised_prompt";
+  const statusHeading =
+    statusMessage.state === "等待生成"
+      ? `${statusMessage.state} · ${requestControlSummary(settings)}`
+      : statusMessage.state;
 
   return (
     <section className="flex min-h-0 min-w-0 flex-col rounded-lg border bg-card shadow-sm" aria-live="polite">
       <div className="flex min-h-14 items-center justify-between gap-3 border-b px-4">
-        <strong className="shrink-0 text-sm">{statusMessage.state}</strong>
+        <strong className="shrink-0 text-sm">{statusHeading}</strong>
         <span className="min-w-0 truncate text-right text-xs font-medium text-muted-foreground">{statusMessage.detail}</span>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
           <div className="grid min-w-0 flex-1 gap-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <strong className="min-w-0 truncate text-sm font-semibold">{selectedRequest?.title || "未选择请求"}</strong>
-              {selectedRequest && (
-                <Badge
-                  variant="secondary"
-                  className="shrink-0"
-                  aria-label={`生成方式：${generationMethodDisplayName(selectedRequest.method)}`}
-                >
-                  {generationMethodDisplayName(selectedRequest.method)}
-                </Badge>
-              )}
-            </div>
+            <strong className="min-w-0 truncate text-sm font-semibold">{selectedRequest?.title || "未选择请求"}</strong>
             <span className="truncate text-xs font-medium text-muted-foreground">
-              {selectedRequest
-                ? `${REQUEST_STATUS_LABELS[selectedRequest.status] || selectedRequest.status} · ${selectedRequest.endpoint}`
-                : "生成后点击请求查看结果。"}
+              {selectedRequest ? `${REQUEST_STATUS_LABELS[selectedRequest.status] || selectedRequest.status}` : "生成后点击请求查看结果。"}
             </span>
           </div>
           <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
             <ActionSlot visible={Boolean(canCancel)} label="取消请求">
-              <Button type="button" variant="outline" size="sm" onClick={() => cancelRequest(selectedRequest!.id)}>
+              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => cancelRequest(selectedRequest!.id)}>
                 <XIcon data-icon="inline-start" />
                 取消请求
               </Button>
             </ActionSlot>
             <ActionSlot visible={Boolean(selectedRequest)} label="复用 Prompt">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canReuse}
-                onClick={() => reusePrompt(selectedRequest!)}
-              >
-                <CopyIcon data-icon="inline-start" />
-                复用 Prompt
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={!canReuse}
+                    onClick={() => reusePrompt(selectedRequest!)}
+                  >
+                    <CopyIcon data-icon="inline-start" />
+                    复用 Prompt
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent sideOffset={8} className="whitespace-pre-wrap break-words text-left">
+                  {inputPromptTooltip}
+                </TooltipContent>
+              </Tooltip>
             </ActionSlot>
             <ActionSlot visible={Boolean(selectedRequestJson)} label="响应 JSON">
-              <Button type="button" variant="outline" size="sm" onClick={() => setJsonDialogOpen(true)}>
-                <FileJsonIcon data-icon="inline-start" />
-                响应 JSON
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setJsonDialogOpen(true)}>
+                    <FileJsonIcon data-icon="inline-start" />
+                    响应 JSON
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent sideOffset={8} className="whitespace-pre-wrap break-words text-left">
+                  {revisedPromptTooltip}
+                </TooltipContent>
+              </Tooltip>
             </ActionSlot>
             <ActionSlot visible={Boolean(canDownload)} label="下载">
-              <Button asChild variant="outline" size="sm">
+              <Button asChild variant="outline" size="sm" className="w-full">
                 <a href={selectedRequestDownload?.href || "#"} download={selectedRequestDownload?.download}>
                   <DownloadIcon data-icon="inline-start" />
                   下载
@@ -470,8 +496,7 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
     <form onSubmit={submitGeneration} className="flex min-h-0 min-w-0 flex-col gap-4 rounded-lg border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div className="grid gap-1">
-          <p className="text-xs font-semibold uppercase text-primary">Text to Image</p>
-          <h2 className="text-xl font-semibold leading-none">生成</h2>
+          <h2 className="text-xl font-semibold leading-none">CPA Image</h2>
         </div>
         <Button
           type="button"
@@ -541,16 +566,18 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
           options={OUTPUT_FORMAT_OPTIONS}
           onValueChange={(value) => updateSettings("outputFormat", value as AppSettings["outputFormat"])}
         />
-        <Field orientation="horizontal" className="h-9 self-end rounded-md border px-3 py-1">
-          <Checkbox
-            id="strictPrompt"
-            checked={settings.strictPrompt}
-            onCheckedChange={(checked) => updateSettings("strictPrompt", checked === true)}
-          />
-          <FieldContent>
-            <FieldLabel htmlFor="strictPrompt">保持原始 Prompt</FieldLabel>
-          </FieldContent>
-        </Field>
+          <Field orientation="horizontal" className="h-9 self-end !items-center rounded-md border px-3 py-1">
+            <Checkbox
+              id="strictPrompt"
+              checked={settings.strictPrompt}
+              onCheckedChange={(checked) => updateSettings("strictPrompt", checked === true)}
+            />
+            <FieldContent>
+              <FieldLabel htmlFor="strictPrompt" className="leading-none">
+                保持原始 Prompt
+              </FieldLabel>
+            </FieldContent>
+          </Field>
       </div>
 
       <PromptHistoryPanel
@@ -664,7 +691,7 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
               />
             </Field>
           </div>
-          <Field orientation="horizontal">
+          <Field orientation="horizontal" className="!items-center">
             <Checkbox
               id="rememberKey"
               checked={settings.rememberKey}
@@ -720,18 +747,24 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
 function ClearRequestsDialog({
   open,
   onOpenChange,
+  title,
+  description,
+  confirmLabel,
   onConfirm,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  confirmLabel: string;
   onConfirm: () => void;
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>清空请求缓存</AlertDialogTitle>
-          <AlertDialogDescription>所有请求记录和图片详情缓存将被删除，进行中的请求会被取消。</AlertDialogDescription>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>取消</AlertDialogCancel>
@@ -739,7 +772,7 @@ function ClearRequestsDialog({
             onClick={onConfirm}
             className="bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20"
           >
-            确认清空
+            {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -775,15 +808,17 @@ function ResponseJsonDialog({
 
 export default function App() {
   const consoleState = useImageConsole();
+  const [clearFailedDialogOpen, setClearFailedDialogOpen] = useState(false);
 
   return (
     <>
-      <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-3 p-3 lg:h-dvh lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)_minmax(310px,380px)] lg:overflow-hidden">
+      <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-3 p-3 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_minmax(310px,380px)] lg:overflow-hidden">
         <RequestListPanel
           {...consoleState}
           onSelectRequest={consoleState.setSelectedRequestId}
           onFilterChange={consoleState.setSelectedRequestFilter}
-          onOpenClear={() => consoleState.setClearDialogOpen(true)}
+          onOpenClearAll={() => consoleState.setClearDialogOpen(true)}
+          onOpenClearFailed={() => setClearFailedDialogOpen(true)}
         />
         <ResultPanel {...consoleState} />
         <GeneratorPanel {...consoleState} />
@@ -793,9 +828,23 @@ export default function App() {
       <ClearRequestsDialog
         open={consoleState.clearDialogOpen}
         onOpenChange={consoleState.setClearDialogOpen}
+        title="清空全部"
+        description="所有请求记录和图片详情缓存将被删除，进行中的请求会被取消。"
+        confirmLabel="确认清空全部"
         onConfirm={() => {
           consoleState.setClearDialogOpen(false);
           consoleState.clearAllRequests();
+        }}
+      />
+      <ClearRequestsDialog
+        open={clearFailedDialogOpen}
+        onOpenChange={setClearFailedDialogOpen}
+        title="清空失败"
+        description="失败和已取消的请求记录将被删除，进行中的请求会保留。"
+        confirmLabel="确认清空失败"
+        onConfirm={() => {
+          setClearFailedDialogOpen(false);
+          consoleState.clearFailedRequests();
         }}
       />
       <ResponseJsonDialog

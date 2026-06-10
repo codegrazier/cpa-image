@@ -32,6 +32,7 @@ import {
   requestControlSummary,
   requestFilterCounts,
   requestImageCount,
+  requestMatchesFilter,
   removePromptFromHistory,
   pinPromptHistory,
   reusablePromptForRequest,
@@ -64,7 +65,7 @@ type ConnectionTone = "default" | "busy" | "ok" | "error";
 type ConnectionStatus = { label: string; tone: ConnectionTone };
 
 const DEFAULT_TEST_CONNECTION_STATUS: ConnectionStatus = {
-  label: "未测试",
+  label: "测试",
   tone: "default",
 };
 
@@ -492,14 +493,6 @@ export function useImageConsole() {
     return JSON.stringify(sanitizeResponseForDisplay(selectedRequest.response), null, 2);
   }, [selectedRequest]);
 
-  const requestListCount = useMemo(() => {
-    const countText =
-      selectedRequestFilter === "all" || requestRecords.length === 0
-        ? `${requestRecords.length} 个`
-        : `${filteredRequests.length}/${requestRecords.length} 个`;
-    return `${countText} · ${requestControlSummary(settings)}`;
-  }, [filteredRequests.length, requestRecords.length, selectedRequestFilter, settings]);
-
   const setPrompt = useCallback((value: string) => {
     setPromptState(value);
     saveLastPrompt(value);
@@ -711,6 +704,11 @@ export function useImageConsole() {
     setStatusMessage({ state: "已清空", detail: "所有请求缓存已清空。" });
   }, [clearQueueTimer]);
 
+  const clearFailedRequests = useCallback(() => {
+    commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "failed")));
+    setStatusMessage({ state: "已清空失败", detail: "失败和已取消请求已删除。" });
+  }, [commitRecords]);
+
   const reusePrompt = useCallback(
     (request: ImageRequestRecord) => {
       const reusablePrompt = reusablePromptForRequest(request);
@@ -746,7 +744,6 @@ export function useImageConsole() {
     selectedRequestId,
     selectedRequestFilter,
     requestCounts,
-    requestListCount,
     statusMessage,
     connectionStatus,
     testConnectionStatus,
@@ -771,6 +768,7 @@ export function useImageConsole() {
     enqueueGeneration,
     cancelRequest,
     clearAllRequests,
+    clearFailedRequests,
     reusePrompt,
     selectPromptHistory,
     deletePromptHistory,

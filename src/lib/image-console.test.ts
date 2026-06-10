@@ -35,6 +35,7 @@ import {
   removePromptFromHistory,
   responseBodyHasError,
   responseErrorMessage,
+  revisedPromptForResponse,
   restoreCachedRequest,
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
@@ -211,6 +212,22 @@ describe("image console logic", () => {
         sourcePrompt: "",
       }),
     ).toBe("glass jellyfish");
+  });
+
+  test("extracts revised prompt from nested responses", () => {
+    expect(
+      revisedPromptForResponse({
+        output: [
+          {
+            message: {
+              revised_prompt: "glass jellyfish, soft rim light",
+            },
+          },
+        ],
+      }),
+    ).toBe("glass jellyfish, soft rim light");
+    expect(revisedPromptForResponse({ data: [{ revisedPrompt: "alt" }] })).toBe("alt");
+    expect(revisedPromptForResponse({})).toBe("");
   });
 
   test("splits multi-image requests into one-image requests by default", () => {

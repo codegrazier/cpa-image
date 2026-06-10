@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -48,7 +48,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
 
-    expect(await screen.findByText("等待生成")).toBeInTheDocument();
+    expect(await screen.findByText(/等待生成/)).toBeInTheDocument();
     expect(screen.getByLabelText("Prompt")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /配置/ }));
@@ -91,11 +91,51 @@ describe("App", () => {
     renderApp();
     await user.click(screen.getByRole("button", { name: /配置/ }));
     const dialog = screen.getByRole("dialog", { name: "连接" });
-    const testButton = within(dialog).getByRole("button", { name: "未测试" });
+    const testButton = within(dialog).getByRole("button", { name: "测试" });
     await user.click(testButton);
 
     expect(await within(dialog).findByRole("button", { name: "连接正常" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  test("clears failed requests while keeping successful ones", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "first boom" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    const prompt = await screen.findByLabelText("Prompt");
+    await user.type(prompt, "first");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+    const requestList = screen.getByRole("complementary", { name: "请求列表" });
+    expect(await within(requestList).findByText(/HTTP 500 first boom/)).toBeInTheDocument();
+
+    await user.clear(prompt);
+    await user.type(prompt, "second");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+    expect(await screen.findByAltText("Generated image 1")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /已失败\s*1/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "清空失败" }));
+    const dialog = screen.getByRole("alertdialog", { name: "清空失败" });
+    await user.click(within(dialog).getByRole("button", { name: "确认清空失败" }));
+
+    expect(screen.getByRole("tab", { name: /已失败\s*0/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /已完成\s*1/ })).toBeInTheDocument();
   });
 
   test("rejects transparent jpeg generation before fetch", async () => {
@@ -117,7 +157,7 @@ describe("App", () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }], revised_prompt: "glass jellyfish, soft rim light" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -137,11 +177,41 @@ describe("App", () => {
         .map((element) => (element.textContent || "").trim())
         .filter((text) => ["复用 Prompt", "响应 JSON", "下载"].includes(text)),
     ).toEqual(["复用 Prompt", "响应 JSON", "下载"]);
+
+    const reusePromptButton = screen.getByRole("button", { name: /复用 Prompt/ });
+    await user.hover(reusePromptButton);
+    const reuseTooltip = await screen.findByRole("tooltip");
+    expect(within(reuseTooltip).getByText("glass jellyfish")).toBeInTheDocument();
+
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8317/v1/images/generations",
       expect.objectContaining({ method: "POST" }),
     );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe("gpt-image-2");
+  });
+
+  test("shows revised_prompt tooltip on the response JSON button", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }], revised_prompt: "glass jellyfish, soft rim light" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+    expect(await screen.findByAltText("Generated image 1")).toBeInTheDocument();
+
+    const responseJsonButton = screen.getByRole("button", { name: /响应 JSON/ });
+    await user.hover(responseJsonButton);
+    const responseTooltip = await screen.findByRole("tooltip");
+    expect(within(responseTooltip).getByText("glass jellyfish, soft rim light")).toBeInTheDocument();
   });
 
   test("records prompt history, refills prompt, and deletes history rows", async () => {
@@ -208,7 +278,6 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /^responses$/ }));
 
     expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
-    expect(screen.getByLabelText("生成方式：responses")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8317/v1/responses", expect.objectContaining({ method: "POST" }));
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("gpt-5.5");
@@ -232,9 +301,9 @@ describe("App", () => {
         .map((element) => (element.textContent || "").trim())
         .filter((text) => ["取消请求", "复用 Prompt"].includes(text)),
     ).toEqual(["取消请求", "复用 Prompt"]);
-    expect(screen.getByLabelText("生成方式：responses")).toBeInTheDocument();
     expect(screen.queryByText(/responses · auto · n=1/)).not.toBeInTheDocument();
     expect(screen.queryByText(/image_generation · auto/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("生成方式：responses")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("生成方式：image_generation")).not.toBeInTheDocument();
   });
 
@@ -265,6 +334,7 @@ describe("App", () => {
     expect(await screen.findByText("responses · auto")).toBeInTheDocument();
     expect(screen.getAllByText(/HTTP 500 upstream returned a very long failure detail/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/responses · auto · n=1/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("生成方式：responses")).not.toBeInTheDocument();
   });
 
   test("submits completions requests to the chat completions endpoint", async () => {
@@ -283,7 +353,6 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /^completions$/ }));
 
     expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
-    expect(screen.getByLabelText("生成方式：completions")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8317/v1/chat/completions",
       expect.objectContaining({ method: "POST" }),

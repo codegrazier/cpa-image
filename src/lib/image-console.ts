@@ -342,6 +342,41 @@ export function reusablePromptForRequest(request: Pick<ImageRequestRecord, "payl
   return String(request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload))).trim();
 }
 
+export function revisedPromptForResponse(value: unknown) {
+  const seenObjects = new WeakSet<object>();
+
+  function walk(node: unknown): string {
+    if (!node || typeof node !== "object") return "";
+    if (seenObjects.has(node)) return "";
+    seenObjects.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = walk(item);
+        if (found) return found;
+      }
+      return "";
+    }
+
+    const record = node as Record<string, unknown>;
+    for (const key of ["revised_prompt", "revisedPrompt"]) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    for (const child of Object.values(record)) {
+      const found = walk(child);
+      if (found) return found;
+    }
+
+    return "";
+  }
+
+  return walk(value);
+}
+
 export function imageCountFromValue(value: unknown) {
   const imageCount = Number.parseInt(String(value), 10);
   if (!Number.isInteger(imageCount) || imageCount < 1 || imageCount > MAX_IMAGE_COUNT) {
