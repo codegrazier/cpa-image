@@ -7,13 +7,14 @@ import {
   ImageIcon,
   Loader2Icon,
   MessageSquareIcon,
+  PinIcon,
   PlayIcon,
   RotateCcwIcon,
   SettingsIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +32,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useImageConsole } from "@/hooks/use-image-console";
-import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, formatCompletionTime, generationMethodDisplayName, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type RequestFilter } from "@/lib/image-console";
+import { BACKGROUND_OPTIONS, DEFAULTS, OUTPUT_FORMAT_OPTIONS, QUALITY_OPTIONS, REQUEST_FILTER_EMPTY_TEXT, REQUEST_FILTER_LABELS, REQUEST_STATUS_LABELS, SIZE_OPTIONS, formatCompletionTime, generationMethodDisplayName, reusablePromptForRequest, type AppSettings, type ImageRequestRecord, type PromptHistoryEntry, type RequestFilter } from "@/lib/image-console";
 import { cn } from "@/lib/utils";
 
 const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
@@ -50,6 +51,18 @@ function selectedRequestEmptyText(request: ImageRequestRecord | null) {
   if (request.status === "error") return request.error || "该请求失败";
   if (request.detailsMissing) return "历史已恢复，图片详情未能从本地缓存读取。";
   return "响应中没有找到图片";
+}
+
+function ActionSlot({
+  visible,
+  label,
+  children,
+}: {
+  visible: boolean;
+  label: string;
+  children: ReactNode;
+}) {
+  return <div className="w-32 shrink-0">{visible ? children : <Button className="invisible w-full pointer-events-none" size="sm" tabIndex={-1} aria-hidden="true" type="button" variant="outline">{label}</Button>}</div>;
 }
 
 function OptionSelect({
@@ -311,33 +324,39 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
                 : "生成后点击请求查看结果。"}
             </span>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {canCancel && (
-              <Button type="button" variant="outline" size="sm" onClick={() => cancelRequest(selectedRequest.id)}>
+          <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
+            <ActionSlot visible={Boolean(canCancel)} label="取消请求">
+              <Button type="button" variant="outline" size="sm" onClick={() => cancelRequest(selectedRequest!.id)}>
                 <XIcon data-icon="inline-start" />
                 取消请求
               </Button>
-            )}
-            {selectedRequest && (
-              <Button type="button" variant="outline" size="sm" disabled={!canReuse} onClick={() => reusePrompt(selectedRequest)}>
+            </ActionSlot>
+            <ActionSlot visible={Boolean(selectedRequest)} label="复用 Prompt">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!canReuse}
+                onClick={() => reusePrompt(selectedRequest!)}
+              >
                 <CopyIcon data-icon="inline-start" />
                 复用 Prompt
               </Button>
-            )}
-            {canDownload && (
-              <Button asChild variant="outline" size="sm">
-                <a href={selectedRequestDownload.href} download={selectedRequestDownload.download}>
-                  <DownloadIcon data-icon="inline-start" />
-                  下载
-                </a>
-              </Button>
-            )}
-            {selectedRequestJson && (
+            </ActionSlot>
+            <ActionSlot visible={Boolean(selectedRequestJson)} label="响应 JSON">
               <Button type="button" variant="outline" size="sm" onClick={() => setJsonDialogOpen(true)}>
                 <FileJsonIcon data-icon="inline-start" />
                 响应 JSON
               </Button>
-            )}
+            </ActionSlot>
+            <ActionSlot visible={Boolean(canDownload)} label="下载">
+              <Button asChild variant="outline" size="sm">
+                <a href={selectedRequestDownload?.href || "#"} download={selectedRequestDownload?.download}>
+                  <DownloadIcon data-icon="inline-start" />
+                  下载
+                </a>
+              </Button>
+            </ActionSlot>
             <span className="w-44 shrink-0 text-right text-xs font-medium tabular-nums text-muted-foreground">{selectedRequestTiming}</span>
           </div>
         </div>
@@ -352,42 +371,63 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
 
 function PromptHistoryPanel({
   promptHistory,
+  promptHistoryCount,
+  promptHistoryPinnedCount,
   onSelectPrompt,
   onDeletePrompt,
+  onTogglePromptPin,
 }: {
-  promptHistory: string[];
+  promptHistory: PromptHistoryEntry[];
+  promptHistoryCount: number;
+  promptHistoryPinnedCount: number;
   onSelectPrompt: (value: string) => void;
   onDeletePrompt: (value: string) => void;
+  onTogglePromptPin: (value: string) => void;
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2" aria-label="历史 Prompt">
       <div className="flex items-center justify-between gap-2">
         <FieldTitle>历史 Prompt</FieldTitle>
         <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-          {promptHistory.length}/20
+          {promptHistoryCount}/20{promptHistoryPinnedCount ? ` · ${promptHistoryPinnedCount} 已置顶` : ""}
         </span>
       </div>
 
       {promptHistory.length ? (
         <ScrollArea className="min-h-0 flex-1 rounded-md border">
-          <div className="flex min-w-0 flex-col">
+          <div className="flex w-full min-w-0 flex-col">
             {promptHistory.map((item) => (
-              <div key={item} className="flex min-w-0 items-center gap-1 border-b last:border-b-0">
+              <div
+                key={item.prompt}
+                className="grid w-full max-w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 overflow-hidden border-b last:border-b-0"
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className={cn("shrink-0", item.pinned ? "text-primary" : "text-muted-foreground")}
+                  aria-pressed={item.pinned}
+                  aria-label={item.pinned ? `取消置顶：${item.prompt}` : `置顶 Prompt：${item.prompt}`}
+                  title={item.pinned ? "取消置顶" : "置顶"}
+                  onClick={() => onTogglePromptPin(item.prompt)}
+                >
+                  <PinIcon fill={item.pinned ? "currentColor" : "none"} data-icon="inline-start" />
+                </Button>
                 <button
                   type="button"
-                  className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
-                  title={item}
-                  onClick={() => onSelectPrompt(item)}
+                  className="flex w-full min-w-0 items-center overflow-hidden px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                  title={item.prompt}
+                  onClick={() => onSelectPrompt(item.prompt)}
                 >
-                  {item}
+                  <span className="block min-w-0 flex-1 truncate">{item.prompt}</span>
                 </button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-xs"
                   className="mr-1 shrink-0"
-                  aria-label={`删除历史 Prompt：${item}`}
-                  onClick={() => onDeletePrompt(item)}
+                  aria-label={`删除历史 Prompt：${item.prompt}`}
+                  onClick={() => onDeletePrompt(item.prompt)}
                 >
                   <Trash2Icon data-icon="inline-start" />
                 </Button>
@@ -409,6 +449,8 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
     settings,
     prompt,
     promptHistory,
+    promptHistoryCount,
+    promptHistoryPinnedCount,
     connectionStatus,
     setPrompt,
     updateSettings,
@@ -416,6 +458,7 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
     enqueueGeneration,
     selectPromptHistory,
     deletePromptHistory,
+    togglePromptHistoryPin,
   } = consoleState;
 
   function submitGeneration(event: FormEvent<HTMLFormElement>) {
@@ -512,8 +555,11 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
 
       <PromptHistoryPanel
         promptHistory={promptHistory}
+        promptHistoryCount={promptHistoryCount}
+        promptHistoryPinnedCount={promptHistoryPinnedCount}
         onSelectPrompt={selectPromptHistory}
         onDeletePrompt={deletePromptHistory}
+        onTogglePromptPin={togglePromptHistoryPin}
       />
 
       <div className="grid grid-cols-1 gap-2">
@@ -539,6 +585,7 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
     settings,
     settingsOpen,
     endpointPreview,
+    testConnectionStatus,
     setSettingsOpen,
     updateSettings,
     saveCurrentSettings,
@@ -580,7 +627,7 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="imageGenerationModel">图像模型</FieldLabel>
+            <FieldLabel htmlFor="imageGenerationModel">LLM 模型</FieldLabel>
             <Input
               id="imageGenerationModel"
               type="text"
@@ -640,10 +687,25 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
             <RotateCcwIcon data-icon="inline-start" />
             重置
           </Button>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={testConnection}>
-              <CheckCircle2Icon data-icon="inline-start" />
-              测试
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant={
+                testConnectionStatus.tone === "ok"
+                  ? "secondary"
+                  : testConnectionStatus.tone === "error"
+                    ? "destructive"
+                    : "outline"
+              }
+              className="w-28 justify-center"
+              onClick={testConnection}
+            >
+              {testConnectionStatus.tone === "busy" ? (
+                <Loader2Icon data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <CheckCircle2Icon data-icon="inline-start" />
+              )}
+              {testConnectionStatus.label}
             </Button>
             <Button type="button" onClick={saveCurrentSettings}>
               保存

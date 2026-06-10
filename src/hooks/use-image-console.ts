@@ -18,6 +18,7 @@ import {
   imageCountFromValue,
   imageDownloadName,
   missingImageOutputMessage,
+  mergePromptHistoryForDisplay,
   normalizeChatCompletionsEndpoint,
   normalizeImageEndpoint,
   normalizeModelsEndpoint,
@@ -32,6 +33,7 @@ import {
   requestFilterCounts,
   requestImageCount,
   removePromptFromHistory,
+  pinPromptHistory,
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
   sortedRequestRecordsForFilter,
@@ -40,22 +42,31 @@ import {
   type GenerationMethod,
   type ImageRequestRecord,
   type RequestFilter,
+  unpinPromptHistory,
 } from "@/lib/image-console";
 import {
   clearCachedRequests,
   loadCachedRequests,
   loadLastPrompt,
   loadPromptHistory,
+  loadPinnedPromptHistory,
   loadSettings,
   resetSettings as resetStoredSettings,
   saveCachedRequests,
   saveLastPrompt,
   savePromptHistory,
+  savePinnedPromptHistory,
   saveRequestDetails,
   saveSettings,
 } from "@/lib/storage";
 
 type ConnectionTone = "default" | "busy" | "ok" | "error";
+type ConnectionStatus = { label: string; tone: ConnectionTone };
+
+const DEFAULT_TEST_CONNECTION_STATUS: ConnectionStatus = {
+  label: "未测试",
+  tone: "default",
+};
 
 interface StatusMessage {
   state: string;
@@ -169,10 +180,19 @@ function initialPromptHistory() {
   }
 }
 
+function initialPinnedPromptHistory() {
+  try {
+    return loadPinnedPromptHistory();
+  } catch {
+    return [];
+  }
+}
+
 export function useImageConsole() {
   const [settings, setSettings] = useState<AppSettings>(() => initialSettings());
   const [prompt, setPromptState] = useState(() => initialPrompt());
   const [promptHistory, setPromptHistory] = useState<string[]>(() => initialPromptHistory());
+  const [pinnedPromptHistory, setPinnedPromptHistory] = useState<string[]>(() => initialPinnedPromptHistory());
   const [requestRecords, setRequestRecords] = useState<ImageRequestRecord[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedRequestFilter, setSelectedRequestFilter] = useState<RequestFilter>("all");
@@ -180,10 +200,11 @@ export function useImageConsole() {
     state: "等待生成",
     detail: "配置 URL 和 API Key 后即可开始。",
   });
-  const [connectionStatus, setConnectionStatus] = useState<{ label: string; tone: ConnectionTone }>({
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     label: "配置",
     tone: "default",
   });
+  const [testConnectionStatus, setTestConnectionStatus] = useState<ConnectionStatus>(() => DEFAULT_TEST_CONNECTION_STATUS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [jsonDialogOpen, setJsonDialogOpen] = useState(false);
@@ -492,6 +513,14 @@ export function useImageConsole() {
     });
   }, []);
 
+  const updatePinnedPromptHistory = useCallback((updater: (history: string[]) => string[]) => {
+    setPinnedPromptHistory((current) => {
+      const next = updater(current);
+      savePinnedPromptHistory(next);
+      return next;
+    });
+  }, []);
+
   const selectPromptHistory = useCallback(
     (value: string) => {
       setPrompt(value);
@@ -500,11 +529,24 @@ export function useImageConsole() {
     [setPrompt],
   );
 
+  const togglePromptHistoryPin = useCallback(
+    (value: string) => {
+      updatePinnedPromptHistory((history) => {
+        const target = String(value || "").trim();
+        if (!target) return history;
+        const normalized = history.map((item) => item.trim()).filter(Boolean);
+        return normalized.includes(target) ? unpinPromptHistory(normalized, target) : pinPromptHistory(normalized, target);
+      });
+    },
+    [updatePinnedPromptHistory],
+  );
+
   const deletePromptHistory = useCallback(
     (value: string) => {
       updatePromptHistory((history) => removePromptFromHistory(history, value));
+      updatePinnedPromptHistory((history) => unpinPromptHistory(history, value));
     },
-    [updatePromptHistory],
+    [updatePinnedPromptHistory, updatePromptHistory],
   );
 
   const updateSettings = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
@@ -512,6 +554,9 @@ export function useImageConsole() {
       ...current,
       [key]: value,
     }));
+    if (key === "baseUrl" || key === "apiKey") {
+      setTestConnectionStatus(DEFAULT_TEST_CONNECTION_STATUS);
+    }
   }, []);
 
   const saveCurrentSettings = useCallback(() => {
@@ -522,7 +567,7 @@ export function useImageConsole() {
     setConnectionStatus({ label: "已保存", tone: "ok" });
     setStatusMessage({
       state: "设置已保存",
-      detail: `${requestControlSummary(normalized)} · 图像模型 ${normalized.imageGenerationModel}`,
+      detail: `${requestControlSummary(normalized)} · LLM 模型 ${normalized.imageGenerationModel}`,
     });
     clearQueueTimer();
     setSettingsOpen(false);
@@ -535,21 +580,22 @@ export function useImageConsole() {
     setSettings(defaults);
     settingsRef.current = defaults;
     setConnectionStatus({ label: "配置", tone: "default" });
+    setTestConnectionStatus(DEFAULT_TEST_CONNECTION_STATUS);
     setStatusMessage({ state: "已重置", detail: "默认 URL 已恢复。" });
   }, []);
 
   const testConnection = useCallback(async () => {
     const currentSettings = settingsRef.current;
     const endpoint = normalizeModelsEndpoint(currentSettings.baseUrl);
-    setConnectionStatus({ label: "测试中", tone: "busy" });
+    setTestConnectionStatus({ label: "测试中", tone: "busy" });
     setStatusMessage({ state: "测试连接", detail: endpoint });
 
     try {
       await fetchModels(currentSettings.baseUrl, currentSettings.apiKey);
-      setConnectionStatus({ label: "连接正常", tone: "ok" });
+      setTestConnectionStatus({ label: "连接正常", tone: "ok" });
       setStatusMessage({ state: "连接正常", detail: "模型列表接口已返回。" });
     } catch (error) {
-      setConnectionStatus({ label: "连接失败", tone: "error" });
+      setTestConnectionStatus({ label: "连接失败", tone: "error" });
       setStatusMessage({ state: "连接失败", detail: (error as Error).message });
     }
   }, []);
@@ -683,11 +729,17 @@ export function useImageConsole() {
     : null;
 
   const selectedRequestTiming = selectedRequest ? formatRequestTiming(selectedRequest, now) : "-";
+  const promptHistoryEntries = useMemo(
+    () => mergePromptHistoryForDisplay(pinnedPromptHistory, promptHistory),
+    [pinnedPromptHistory, promptHistory],
+  );
 
   return {
     settings,
     prompt,
-    promptHistory,
+    promptHistory: promptHistoryEntries,
+    promptHistoryCount: promptHistory.length,
+    promptHistoryPinnedCount: pinnedPromptHistory.length,
     requestRecords,
     filteredRequests,
     selectedRequest,
@@ -697,6 +749,7 @@ export function useImageConsole() {
     requestListCount,
     statusMessage,
     connectionStatus,
+    testConnectionStatus,
     endpointPreview,
     settingsOpen,
     clearDialogOpen,
@@ -721,6 +774,7 @@ export function useImageConsole() {
     reusePrompt,
     selectPromptHistory,
     deletePromptHistory,
+    togglePromptHistoryPin,
     payloadSize,
     requestImageCount,
     formatRequestTiming,

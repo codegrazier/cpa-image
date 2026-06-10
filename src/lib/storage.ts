@@ -2,7 +2,9 @@ import {
   cachedRequestRecords,
   DEFAULTS,
   LAST_PROMPT_KEY,
+  PINNED_PROMPT_HISTORY_KEY,
   normalizePromptHistory,
+  normalizePinnedPromptHistory,
   prepareImageForDetailCache,
   PROMPT_HISTORY_KEY,
   REQUEST_CACHE_KEY,
@@ -95,6 +97,23 @@ export function savePromptHistory(history: string[]) {
     localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(normalizePromptHistory(history)));
   } catch {
     // 历史 Prompt 只是辅助信息，写入失败时不影响生成。
+  }
+}
+
+export function loadPinnedPromptHistory() {
+  try {
+    const stored = localStorage.getItem(PINNED_PROMPT_HISTORY_KEY);
+    return normalizePinnedPromptHistory(stored ? JSON.parse(stored) : []);
+  } catch {
+    return [];
+  }
+}
+
+export function savePinnedPromptHistory(history: string[]) {
+  try {
+    localStorage.setItem(PINNED_PROMPT_HISTORY_KEY, JSON.stringify(normalizePinnedPromptHistory(history)));
+  } catch {
+    // 置顶 Prompt 只是辅助信息，写入失败时不影响生成。
   }
 }
 

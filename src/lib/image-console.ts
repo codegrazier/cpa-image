@@ -2,6 +2,7 @@ export const STORAGE_KEY = "gpt-image-2-console-settings";
 export const REQUEST_CACHE_KEY = "gpt-image-2-console-requests";
 export const LAST_PROMPT_KEY = "gpt-image-2-console-last-prompt";
 export const PROMPT_HISTORY_KEY = "gpt-image-2-console-prompt-history";
+export const PINNED_PROMPT_HISTORY_KEY = "gpt-image-2-console-pinned-prompts";
 export const REQUEST_DETAIL_DB_NAME = "gpt-image-2-console";
 export const REQUEST_DETAIL_DB_VERSION = 1;
 export const REQUEST_DETAIL_STORE_NAME = "request-details";
@@ -74,6 +75,11 @@ export interface ChatCompletionMessage {
         [key: string]: unknown;
       }>;
   [key: string]: unknown;
+}
+
+export interface PromptHistoryEntry {
+  prompt: string;
+  pinned: boolean;
 }
 
 export interface RequestPayload {
@@ -177,7 +183,7 @@ export function generationMethodDisplayName(method: GenerationMethod | "" | null
   return method || "gpt-image-2";
 }
 
-export function normalizePromptHistory(value: unknown) {
+function normalizePromptList(value: unknown, limit = MAX_PROMPT_HISTORY) {
   if (!Array.isArray(value)) return [];
 
   const seen = new Set<string>();
@@ -189,10 +195,18 @@ export function normalizePromptHistory(value: unknown) {
     seen.add(prompt);
     normalized.push(prompt);
 
-    if (normalized.length >= MAX_PROMPT_HISTORY) break;
+    if (normalized.length >= limit) break;
   }
 
   return normalized;
+}
+
+export function normalizePromptHistory(value: unknown) {
+  return normalizePromptList(value, MAX_PROMPT_HISTORY);
+}
+
+export function normalizePinnedPromptHistory(value: unknown) {
+  return normalizePromptList(value, Number.POSITIVE_INFINITY);
 }
 
 export function addPromptToHistory(history: unknown, prompt: unknown) {
@@ -202,6 +216,25 @@ export function addPromptToHistory(history: unknown, prompt: unknown) {
 export function removePromptFromHistory(history: unknown, prompt: unknown) {
   const target = String(prompt || "").trim();
   return normalizePromptHistory(history).filter((item) => item !== target);
+}
+
+export function pinPromptHistory(history: unknown, prompt: unknown) {
+  const target = String(prompt || "").trim();
+  if (!target) return normalizePinnedPromptHistory(history);
+  return normalizePinnedPromptHistory([target, ...normalizePinnedPromptHistory(history)]);
+}
+
+export function unpinPromptHistory(history: unknown, prompt: unknown) {
+  const target = String(prompt || "").trim();
+  return normalizePinnedPromptHistory(history).filter((item) => item !== target);
+}
+
+export function mergePromptHistoryForDisplay(pinnedHistory: unknown, history: unknown) {
+  const pinned = normalizePinnedPromptHistory(pinnedHistory);
+  const pinnedSet = new Set(pinned);
+  const recent = normalizePromptHistory(history).filter((item) => !pinnedSet.has(item));
+
+  return [...pinned.map((prompt) => ({ prompt, pinned: true })), ...recent.map((prompt) => ({ prompt, pinned: false }))];
 }
 
 const STRICT_PROMPT_PREFIX = [

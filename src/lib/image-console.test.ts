@@ -22,13 +22,16 @@ import {
   normalizeChatCompletionsEndpoint,
   normalizeImageEndpoint,
   normalizePromptHistory,
+  normalizePinnedPromptHistory,
   normalizeModelsEndpoint,
   normalizeRequestConcurrency,
   normalizeRequestIntervalSeconds,
   normalizeResponsesEndpoint,
+  mergePromptHistoryForDisplay,
   prepareImageForDetailCache,
   prepareImageForRuntime,
   requestFilterCounts,
+  pinPromptHistory,
   removePromptFromHistory,
   responseBodyHasError,
   responseErrorMessage,
@@ -37,6 +40,7 @@ import {
   sanitizeResponseForDisplay,
   sortedRequestRecordsForFilter,
   stripPromptPolicy,
+  unpinPromptHistory,
 } from "@/lib/image-console";
 
 const PNG_BASE64 =
@@ -370,6 +374,21 @@ describe("image console logic", () => {
     expect(updated[0]).toBe("prompt 8");
     expect(updated).toHaveLength(20);
     expect(removed).not.toContain("prompt 8");
+  });
+
+  test("pins prompts above recent history without dropping them", () => {
+    const pinned = normalizePinnedPromptHistory(["pinned", "pinned", "older"]);
+    const repinned = pinPromptHistory(pinned, "fresh");
+    const unpinned = unpinPromptHistory(repinned, "pinned");
+    const merged = mergePromptHistoryForDisplay(repinned, ["recent 1", "pinned", "recent 2"]);
+
+    expect(pinned).toEqual(["pinned", "older"]);
+    expect(repinned[0]).toBe("fresh");
+    expect(repinned).toContain("pinned");
+    expect(unpinned).not.toContain("pinned");
+    expect(merged.map((item) => item.prompt)).toEqual(["fresh", "pinned", "older", "recent 1", "recent 2"]);
+    expect(merged[0].pinned).toBe(true);
+    expect(merged[3].pinned).toBe(false);
   });
 
   test("sorts done request lists by completion time descending", () => {
