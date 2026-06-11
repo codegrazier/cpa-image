@@ -19,6 +19,7 @@ import {
   generationMethodDisplayName,
   imageBlobFromDataUrl,
   missingImageOutputMessage,
+  imageDownloadName,
   normalizeChatCompletionsEndpoint,
   normalizeImageEndpoint,
   normalizePromptHistory,
@@ -85,10 +86,10 @@ describe("image console logic", () => {
     );
   });
 
-  test("builds payload with base64 responses", () => {
+  test("uses configurable image model for base64 payloads", () => {
     expect(
       buildPayload({
-        model: "custom-ignored-model",
+        model: "custom-image-model",
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
@@ -98,7 +99,7 @@ describe("image console logic", () => {
         outputFormat: "webp",
       }),
     ).toEqual({
-      model: "gpt-image-2",
+      model: "custom-image-model",
       prompt: "glass jellyfish",
       n: 2,
       size: "1024x1024",
@@ -111,7 +112,7 @@ describe("image console logic", () => {
 
   test("uses configurable responses image_generation model", () => {
     const payload = buildResponsesImagePayload({
-      imageGenerationModel: "gpt-5.6",
+      llmModel: "gpt-5.6",
       prompt: "glass jellyfish",
       strictPrompt: false,
       n: 1,
@@ -153,7 +154,7 @@ describe("image console logic", () => {
   test("builds chat completions image payload with messages and image tool options", () => {
     expect(
       buildChatCompletionsImagePayload({
-        imageGenerationModel: "gpt-5.6",
+        llmModel: "gpt-5.6",
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
@@ -373,10 +374,20 @@ describe("image console logic", () => {
   });
 
   test("maps internal generation methods to user-facing labels", () => {
-    expect(generationMethodDisplayName("gpt-image-2")).toBe("gpt-image-2");
+    expect(generationMethodDisplayName("gpt-image-2")).toBe("generations");
     expect(generationMethodDisplayName("image_generation")).toBe("responses");
     expect(generationMethodDisplayName("completions")).toBe("completions");
-    expect(generationMethodDisplayName("")).toBe("gpt-image-2");
+    expect(generationMethodDisplayName("")).toBe("generations");
+  });
+
+  test("uses generations as the download filename prefix for image generation", () => {
+    expect(
+      imageDownloadName({
+        method: "gpt-image-2",
+        title: "0617-1801-1",
+        payload: { model: "gpt-image-2" },
+      }),
+    ).toBe("generations-0617-1801-1-1.png");
   });
 
   test("deduplicates prompt history and keeps the newest 20 prompts", () => {

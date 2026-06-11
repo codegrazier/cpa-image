@@ -81,8 +81,8 @@ function normalizeSettings(values: AppSettings): AppSettings {
   return {
     ...DEFAULTS,
     ...values,
-    model: DEFAULTS.model,
-    imageGenerationModel: String(values.imageGenerationModel || DEFAULTS.imageGenerationModel).trim(),
+    model: String(values.model || DEFAULTS.model).trim(),
+    llmModel: String(values.llmModel || DEFAULTS.llmModel).trim(),
     rememberKey: Boolean(values.rememberKey),
     strictPrompt: values.strictPrompt ?? DEFAULTS.strictPrompt,
     requestConcurrency: normalizeRequestConcurrency(values.requestConcurrency),
@@ -642,13 +642,13 @@ export function useImageConsole() {
 
   const endpointPreview = useMemo(() => {
     const baseUrl = settings.baseUrl || DEFAULTS.baseUrl;
-    const imageGenerationModel = String(settings.imageGenerationModel || DEFAULTS.imageGenerationModel).trim();
+    const llmModel = String(settings.llmModel || DEFAULTS.llmModel).trim();
     return [
-      `gpt-image-2: ${normalizeImageEndpoint(baseUrl)}`,
-      `responses (${imageGenerationModel}): ${normalizeResponsesEndpoint(baseUrl)}`,
-      `completions (${imageGenerationModel}): ${normalizeChatCompletionsEndpoint(baseUrl)}`,
-    ].join("\n");
-  }, [settings.baseUrl, settings.imageGenerationModel]);
+      `generations (gpt-image-2)\n${normalizeImageEndpoint(baseUrl)}`,
+      `responses (${llmModel})\n${normalizeResponsesEndpoint(baseUrl)}`,
+      `completions (${llmModel})\n${normalizeChatCompletionsEndpoint(baseUrl)}`,
+    ].join("\n\n");
+  }, [settings.baseUrl, settings.llmModel]);
 
   const selectedRequestJson = useMemo(() => {
     if (selectedRequest?.response == null) return "";
@@ -722,7 +722,7 @@ export function useImageConsole() {
     setConnectionStatus({ label: "已保存", tone: "ok" });
     setStatusMessage({
       state: "设置已保存",
-      detail: `${requestControlSummary(normalized)} · LLM 模型 ${normalized.imageGenerationModel}`,
+      detail: `${requestControlSummary(normalized)} · 生图模型 ${normalized.model} · LLM 模型 ${normalized.llmModel}`,
     });
     clearQueueTimer();
     setSettingsOpen(false);

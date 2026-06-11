@@ -42,7 +42,12 @@ export function loadSettings(): AppSettings {
   if (!stored) return { ...DEFAULTS };
 
   try {
-    return { ...DEFAULTS, ...JSON.parse(stored) };
+    const parsed = JSON.parse(stored) as Partial<AppSettings> & { imageGenerationModel?: string };
+    return {
+      ...DEFAULTS,
+      ...parsed,
+      llmModel: parsed.llmModel || parsed.imageGenerationModel || DEFAULTS.llmModel,
+    };
   } catch {
     return { ...DEFAULTS };
   }
@@ -51,8 +56,8 @@ export function loadSettings(): AppSettings {
 export function saveSettings(values: AppSettings) {
   const persisted: Partial<AppSettings> = {
     baseUrl: values.baseUrl,
-    model: DEFAULTS.model,
-    imageGenerationModel: values.imageGenerationModel || DEFAULTS.imageGenerationModel,
+    model: values.model || DEFAULTS.model,
+    llmModel: values.llmModel || DEFAULTS.llmModel,
     rememberKey: Boolean(values.rememberKey),
     strictPrompt: Boolean(values.strictPrompt),
     requestConcurrency: values.requestConcurrency,

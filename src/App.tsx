@@ -660,7 +660,7 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
       <div className="grid grid-cols-1 gap-2">
         <Button type="submit" size="lg" className={generationButtonFeedbackClassName}>
           <PlayIcon data-icon="inline-start" />
-          gpt-image-2
+          generations
         </Button>
         <Button
           type="button"
@@ -734,13 +734,23 @@ function SettingsDialog(consoleState: ReturnType<typeof useImageConsole>) {
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="imageGenerationModel">LLM 模型</FieldLabel>
+            <FieldLabel htmlFor="model">生图模型</FieldLabel>
             <Input
-              id="imageGenerationModel"
+              id="model"
               type="text"
               spellCheck={false}
-              value={settings.imageGenerationModel}
-              onChange={(event) => updateSettings("imageGenerationModel", event.target.value)}
+              value={settings.model}
+              onChange={(event) => updateSettings("model", event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="llmModel">LLM 模型</FieldLabel>
+            <Input
+              id="llmModel"
+              type="text"
+              spellCheck={false}
+              value={settings.llmModel}
+              onChange={(event) => updateSettings("llmModel", event.target.value)}
             />
           </Field>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

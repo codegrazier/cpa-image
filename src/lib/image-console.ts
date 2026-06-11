@@ -42,7 +42,7 @@ export interface AppSettings {
   apiKey: string;
   rememberKey: boolean;
   model: string;
-  imageGenerationModel: string;
+  llmModel: string;
   strictPrompt: boolean;
   requestConcurrency: number | string;
   requestIntervalSeconds: number | string;
@@ -147,7 +147,7 @@ export const DEFAULTS: AppSettings = {
   apiKey: "",
   rememberKey: false,
   model: "gpt-image-2",
-  imageGenerationModel: "gpt-5.5",
+  llmModel: "gpt-5.5",
   strictPrompt: true,
   requestConcurrency: 2,
   requestIntervalSeconds: 60,
@@ -182,7 +182,8 @@ export const REQUEST_FILTER_EMPTY_TEXT: Record<RequestFilter, string> = {
 
 export function generationMethodDisplayName(method: GenerationMethod | "" | null | undefined) {
   if (method === "image_generation") return "responses";
-  return method || "gpt-image-2";
+  if (method === "completions") return "completions";
+  return "generations";
 }
 
 function normalizePromptList(value: unknown, limit = MAX_PROMPT_HISTORY) {
@@ -242,7 +243,7 @@ export function mergePromptHistoryForDisplay(pinnedHistory: unknown, history: un
 const STRICT_PROMPT_PREFIX = [
   "请把下面的原始 Prompt 当作最终图像指令执行。",
   "不要改写、扩写、翻译、润色、补充主体、改变构图、改变风格、添加未出现的元素。",
-  "保留原文的风格强度、性感氛围、露肤度、姿态、镜头语言、材质和光影，不要把它改得更保守或更中性。",
+  "保留原文的风格强度、氛围、姿态、镜头语言、材质和光影，不要把它改得更保守或更中性。",
   "不要删减关键词，不要替换成含糊说法，不要添加原文没有的内容。",
   "必须逐字保持原始 Prompt 的语义、语言和细节不变。",
   "",
@@ -410,9 +411,14 @@ export function buildPayload(values: Partial<GenerationValues> & Pick<Generation
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   });
   const imageCount = imageCountFromValue(values.n || DEFAULTS.n);
+  const model = String(values.model || DEFAULTS.model).trim();
+
+  if (!model) {
+    throw new Error("生图模型不能为空。");
+  }
 
   return {
-    model: DEFAULTS.model,
+    model,
     prompt: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt),
     n: imageCount,
     size: values.size || DEFAULTS.size,
@@ -431,11 +437,11 @@ export function buildResponsesImagePayload(
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   });
-  const model = String(values.imageGenerationModel || DEFAULTS.imageGenerationModel).trim();
+  const model = String(values.llmModel || DEFAULTS.llmModel).trim();
   imageCountFromValue(values.n || DEFAULTS.n);
 
   if (!model) {
-    throw new Error("image_generation 模型不能为空。");
+    throw new Error("LLM 模型不能为空。");
   }
 
   return {
@@ -464,11 +470,11 @@ export function buildChatCompletionsImagePayload(
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   });
-  const model = String(values.imageGenerationModel || DEFAULTS.imageGenerationModel).trim();
+  const model = String(values.llmModel || DEFAULTS.llmModel).trim();
   imageCountFromValue(values.n || DEFAULTS.n);
 
   if (!model) {
-    throw new Error("completions 模型不能为空。");
+    throw new Error("LLM 模型不能为空。");
   }
 
   return {
@@ -1126,6 +1132,6 @@ export function imageDownloadName(request: Pick<ImageRequestRecord, "payload" | 
       ? "image-generation"
       : request?.method === "completions"
         ? "completions"
-        : "gpt-image-2";
+        : "generations";
   return `${prefix}-${title}-${index + 1}.${format}`;
 }
