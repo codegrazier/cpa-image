@@ -619,7 +619,12 @@ export function prepareRequestForCache(request: ImageRequestRecord): CachedReque
     payload: request.payload,
     sourcePrompt: request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload)),
     imageCount: requestImageCount(request),
-    hasCachedDetails: Boolean((request.images?.length || 0) > 0 || request.response != null),
+    hasCachedDetails: Boolean(
+      request.hasCachedDetails ||
+        (request.images?.length || 0) > 0 ||
+        request.response != null ||
+        request.thumbnail,
+    ),
     thumbnail: request.thumbnail ? serializeGeneratedImage(request.thumbnail) : null,
     status,
     createdAt: request.createdAt,
@@ -643,7 +648,7 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
     payload: request.payload || {},
     sourcePrompt: String(request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload))),
     imageCount: Number.parseInt(String(request.imageCount), 10) || (Array.isArray(request.images) ? request.images.length : 0),
-    hasCachedDetails: Boolean(request.hasCachedDetails || request.response != null || request.images?.length),
+    hasCachedDetails: Boolean(request.hasCachedDetails || request.response != null || request.images?.length || request.thumbnail),
     detailsMissing: Boolean(request.detailsMissing),
     thumbnail: serializeGeneratedImage(request.thumbnail),
     status,

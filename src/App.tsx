@@ -14,7 +14,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -105,7 +105,6 @@ function RequestRow({
   imageCount,
   payloadSize,
   buttonRef,
-  onKeyDown,
   onSelect,
 }: {
   request: ImageRequestRecord;
@@ -114,7 +113,6 @@ function RequestRow({
   imageCount: number;
   payloadSize: string;
   buttonRef?: (element: HTMLButtonElement | null) => void;
-  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onSelect: () => void;
 }) {
   const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
@@ -126,13 +124,12 @@ function RequestRow({
     <button
       type="button"
       className={cn(
-        "grid min-h-22 w-full grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-4 overflow-hidden rounded-md border bg-card p-2.5 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow]",
-        "hover:border-ring hover:shadow-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
-        selected && "border-ring ring-[3px] ring-ring/20",
+        "grid min-h-22 w-full grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-4 overflow-hidden rounded-md border bg-card p-2.5 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow,background-color]",
+        "hover:border-ring hover:shadow-sm focus:outline-none",
+        selected && "border-primary/60 bg-primary/5 shadow-sm",
       )}
       ref={buttonRef}
       onClick={onSelect}
-      onKeyDown={onKeyDown}
       aria-label={`查看 ${request.title} 的生成结果`}
     >
       <span className="flex size-[5.5rem] shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/20">
@@ -174,6 +171,9 @@ function RequestListPanel({
   selectedRequestFilter,
   requestCounts,
   now,
+  settingsOpen,
+  clearDialogOpen,
+  jsonDialogOpen,
   onSelectRequest,
   onFilterChange,
   onOpenClearAll,
@@ -195,16 +195,42 @@ function RequestListPanel({
     requestButtonRefs.current.get(id)?.focus();
   }
 
-  function moveSelection(currentId: string, direction: -1 | 1) {
-    const currentIndex = filteredRequests.findIndex((request) => request.id === currentId);
-    if (currentIndex < 0) return;
+  useEffect(() => {
+    function isEditableTarget(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
 
-    const nextRequest = filteredRequests[currentIndex + direction];
-    if (!nextRequest) return;
+      const tagName = target.tagName;
+      return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
+    }
 
-    onSelectRequest(nextRequest.id);
-    focusRequest(nextRequest.id);
-  }
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      if (settingsOpen || clearDialogOpen || jsonDialogOpen) return;
+      if (isEditableTarget(event.target)) return;
+      if (!filteredRequests.length) return;
+
+      event.preventDefault();
+
+      const currentIndex = filteredRequests.findIndex((request) => request.id === selectedRequestId);
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const nextRequest =
+        currentIndex >= 0
+          ? filteredRequests[currentIndex + step] || filteredRequests[currentIndex]
+          : event.key === "ArrowDown"
+            ? filteredRequests[0]
+            : filteredRequests[filteredRequests.length - 1];
+
+      if (!nextRequest) return;
+
+      onSelectRequest(nextRequest.id);
+      focusRequest(nextRequest.id);
+    }
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [clearDialogOpen, filteredRequests, jsonDialogOpen, onSelectRequest, selectedRequestId, settingsOpen]);
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-col rounded-lg border bg-card shadow-sm" aria-label="请求列表">
@@ -278,16 +304,9 @@ function RequestListPanel({
                     requestButtonRefs.current.delete(request.id);
                   }
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    moveSelection(request.id, 1);
-                  } else if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    moveSelection(request.id, -1);
-                  }
+                onSelect={() => {
+                  onSelectRequest(request.id);
                 }}
-                onSelect={() => onSelectRequest(request.id)}
               />
             ))
           ) : (
@@ -569,7 +588,7 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
             onChange={(event) => setPrompt(event.target.value)}
             placeholder="一只半透明玻璃质感的机械水母，漂浮在清晨的城市天台上，产品摄影，细节清晰"
             required
-            className="min-h-24 resize-y"
+            className="h-[114px] resize-none overflow-y-auto md:h-[98px]"
           />
         </Field>
 

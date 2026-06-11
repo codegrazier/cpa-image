@@ -352,6 +352,7 @@ export function useImageConsole() {
                   images: (detail?.images || []).map(prepareImageForRuntime),
                   response: detail?.response ?? null,
                   thumbnail: request.thumbnail || thumbnail || null,
+                  hasCachedDetails: Boolean(detail || request.hasCachedDetails),
                   detailsMissing: !detail,
                 }
               : request,
@@ -398,7 +399,15 @@ export function useImageConsole() {
         if (cancelled || !thumbnail) continue;
 
         commitRecords((records) =>
-          records.map((item) => (item.id === request.id ? { ...item, thumbnail } : item)),
+          records.map((item) =>
+            item.id === request.id
+              ? {
+                  ...item,
+                  thumbnail,
+                  hasCachedDetails: true,
+                }
+              : item,
+          ),
         );
       }
     })();
@@ -502,6 +511,7 @@ export function useImageConsole() {
                   thumbnail: thumbnail || item.thumbnail || null,
                   response: shouldKeepRuntimeDetails ? displayResponse : null,
                   images,
+                  hasCachedDetails: true,
                   status: extractedImages.length ? "done" : "error",
                   error: missingImageMessage,
                   endedAt: performance.now(),

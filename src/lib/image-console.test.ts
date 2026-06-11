@@ -484,6 +484,31 @@ describe("image console logic", () => {
     expect(restored.imageCount).toBe(1);
   });
 
+  test("treats cached thumbnails as detail-backed requests on restore", () => {
+    const [record] = createRequestRecords(
+      [{ model: "gpt-image-2", prompt: "one glass jellyfish", n: 1 }],
+      "http://localhost:8317/v1/images/generations",
+      1000,
+      new Date("2026-06-17T18:01:00"),
+    );
+
+    record.status = "done";
+    record.images = [];
+    record.response = null;
+    record.hasCachedDetails = false;
+    record.thumbnail = {
+      src: "data:image/webp;base64," + "B".repeat(120),
+      kind: "base64",
+      path: "$.preview",
+    };
+
+    const [cached] = cachedRequestRecords([record]);
+    const restored = restoreCachedRequest(cached);
+
+    expect(cached.hasCachedDetails).toBe(true);
+    expect(restored.hasCachedDetails).toBe(true);
+  });
+
   test("formats request waiting and running time", () => {
     expect(
       formatRequestTiming(
