@@ -242,6 +242,8 @@ export function mergePromptHistoryForDisplay(pinnedHistory: unknown, history: un
 const STRICT_PROMPT_PREFIX = [
   "请把下面的原始 Prompt 当作最终图像指令执行。",
   "不要改写、扩写、翻译、润色、补充主体、改变构图、改变风格、添加未出现的元素。",
+  "保留原文的风格强度、性感氛围、露肤度、姿态、镜头语言、材质和光影，不要把它改得更保守或更中性。",
+  "不要删减关键词，不要替换成含糊说法，不要添加原文没有的内容。",
   "必须逐字保持原始 Prompt 的语义、语言和细节不变。",
   "",
   "原始 Prompt:",

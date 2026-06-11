@@ -169,7 +169,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
 
     expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
-    expect(screen.getByText(/完成于 \d{2}:\d{2}:\d{2} · 1 张图片/)).toBeInTheDocument();
+    expect(screen.getByText(/完成于 \d{2}:\d{2}:\d{2}/)).toBeInTheDocument();
     const completedPanel = document.querySelector('section[aria-live="polite"]');
     expect(completedPanel).not.toBeNull();
     expect(

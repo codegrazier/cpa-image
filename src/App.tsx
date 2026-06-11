@@ -117,14 +117,14 @@ function RequestRow({
 }) {
   const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
   const requestDetail =
-    request.error || (request.status === "done" ? `${formatCompletionTime(request.completedAt)} · ${imageCount} 张图片` : "");
+    request.error || (request.status === "done" ? formatCompletionTime(request.completedAt) : "");
   const thumbnail = request.thumbnail || null;
 
   return (
     <button
       type="button"
       className={cn(
-        "grid min-h-22 w-full grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-4 overflow-hidden rounded-md border bg-card p-2.5 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow,background-color]",
+        "grid min-h-22 w-full cursor-pointer grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-4 overflow-hidden rounded-md border bg-card p-2.5 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow,background-color]",
         "hover:border-ring hover:shadow-sm focus:outline-none",
         selected && "border-primary/60 bg-primary/5 shadow-sm",
       )}
@@ -508,7 +508,7 @@ function PromptHistoryPanel({
                 </Button>
                 <button
                   type="button"
-                  className="flex w-full min-w-0 items-center overflow-hidden px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                  className="flex w-full min-w-0 cursor-pointer items-center overflow-hidden px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
                   title={item.prompt}
                   onClick={() => onSelectPrompt(item.prompt)}
                 >
@@ -553,6 +553,7 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
     deletePromptHistory,
     togglePromptHistoryPin,
   } = consoleState;
+  const generationButtonFeedbackClassName = "transition-all duration-100 active:translate-y-px active:scale-[0.99] active:brightness-95";
 
   function submitGeneration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -657,15 +658,27 @@ function GeneratorPanel(consoleState: ReturnType<typeof useImageConsole>) {
       />
 
       <div className="grid grid-cols-1 gap-2">
-        <Button type="submit" size="lg">
+        <Button type="submit" size="lg" className={generationButtonFeedbackClassName}>
           <PlayIcon data-icon="inline-start" />
           gpt-image-2
         </Button>
-        <Button type="button" variant="secondary" size="lg" onClick={() => enqueueGeneration("responses")}>
+        <Button
+          type="button"
+          variant="secondary"
+          size="lg"
+          className={generationButtonFeedbackClassName}
+          onClick={() => enqueueGeneration("responses")}
+        >
           <ImageIcon data-icon="inline-start" />
           responses
         </Button>
-        <Button type="button" variant="outline" size="lg" onClick={() => enqueueGeneration("completions")}>
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className={generationButtonFeedbackClassName}
+          onClick={() => enqueueGeneration("completions")}
+        >
           <MessageSquareIcon data-icon="inline-start" />
           completions
         </Button>
