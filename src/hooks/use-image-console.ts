@@ -809,7 +809,7 @@ export function useImageConsole() {
       }));
 
       commitRecords((records) => [...records, ...newRequests]);
-      setSelectedRequestId(newRequests[0]?.id || selectedRequestId);
+      setSelectedRequestId((currentId) => currentId || newRequests[0]?.id || null);
       setStatusMessage({
         state: "请求已加入队列",
         detail: `${generationMethodDisplayName(method)} · ${newRequests.length} 个新请求 · ${requestControlSummary(currentSettings)} · ${endpoint}`,
@@ -817,7 +817,7 @@ export function useImageConsole() {
       scheduleQueueRef.current();
       return true;
     },
-    [commitRecords, prompt, selectedRequestId, updatePromptHistory],
+    [commitRecords, prompt, updatePromptHistory],
   );
 
   const cancelRequest = useCallback(

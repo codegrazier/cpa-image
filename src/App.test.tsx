@@ -127,7 +127,7 @@ describe("App", () => {
     await user.clear(prompt);
     await user.type(prompt, "second");
     await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
-    expect(await screen.findByAltText("Generated image 1")).toBeInTheDocument();
+    expect(await screen.findAllByRole("button", { name: /查看 .* 的生成结果/ })).toHaveLength(2);
     expect(screen.getByRole("tab", { name: /已失败\s*1/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "清空失败" }));
@@ -188,6 +188,55 @@ describe("App", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe("gpt-image-2");
+  });
+
+  test("keeps the selected request unchanged after starting another generation", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    const prompt = await screen.findByLabelText("Prompt");
+    await user.type(prompt, "first prompt");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+
+    await user.clear(prompt);
+    await user.type(prompt, "second prompt");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+
+    const requestButtons = await screen.findAllByRole("button", { name: /查看 .* 的生成结果/ });
+    const secondTitle = requestButtons[1].getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
+    await user.click(requestButtons[1]);
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    expect(within(resultPanel).getByText(secondTitle)).toBeInTheDocument();
+
+    await user.clear(prompt);
+    await user.type(prompt, "third prompt");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+
+    expect(within(resultPanel).getByText(secondTitle)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   test("moves between request cards with global arrow keys outside dialogs", async () => {
