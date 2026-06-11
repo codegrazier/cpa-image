@@ -29,6 +29,7 @@ import {
   payloadSize,
   prepareImageForDetailCache,
   prepareImageForRuntime,
+  prepareImageForThumbnailCache,
   requestControlSummary,
   requestFilterCounts,
   requestImageCount,
@@ -51,8 +52,10 @@ import {
   loadLastPrompt,
   loadPromptHistory,
   loadPinnedPromptHistory,
+  loadRequestDetails,
   loadSettings,
   resetSettings as resetStoredSettings,
+  deleteRequestDetails,
   saveCachedRequests,
   saveLastPrompt,
   savePromptHistory,
@@ -150,11 +153,38 @@ function revokeRemovedObjectUrls(previousRecords: ImageRequestRecord[], nextReco
   revokeObjectUrls(removedUrls);
 }
 
-function prepareRecordsForRuntime(records: ImageRequestRecord[]) {
-  return records.map((request) => ({
+function stripRequestRuntimeDetails(request: ImageRequestRecord): ImageRequestRecord {
+  if (!request.images.length && request.response == null) {
+    return request;
+  }
+
+  return {
     ...request,
-    images: (request.images || []).map(prepareImageForRuntime),
-  }));
+    images: [],
+    response: null,
+  };
+}
+
+function keepOnlySelectedRequestDetails(records: ImageRequestRecord[], selectedRequestId: string | null) {
+  return records.map((request) => {
+    if (request.id === selectedRequestId) return request;
+    return stripRequestRuntimeDetails(request);
+  });
+}
+
+async function prepareThumbnailFromImage(image: GeneratedImage): Promise<GeneratedImage | null> {
+  try {
+    return await prepareImageForThumbnailCache(image);
+  } catch {
+    return image.kind === "url"
+      ? ({
+          src: image.src,
+          kind: "url",
+          path: image.path,
+          mimeType: image.mimeType,
+        } as GeneratedImage)
+      : null;
+  }
 }
 
 function initialSettings() {
@@ -210,9 +240,12 @@ export function useImageConsole() {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [jsonDialogOpen, setJsonDialogOpen] = useState(false);
   const [now, setNow] = useState(() => performance.now());
+  const [selectedRequestDetailLoadingId, setSelectedRequestDetailLoadingId] = useState<string | null>(null);
 
   const settingsRef = useRef(settings);
   const requestRecordsRef = useRef(requestRecords);
+  const selectedRequestIdRef = useRef<string | null>(selectedRequestId);
+  const thumbnailBackfillRef = useRef(new Set<string>());
   const queueTimerRef = useRef<number | null>(null);
   const lastRequestStartedAtRef = useRef(0);
   const controllersRef = useRef(new Map<string, AbortController>());
@@ -228,6 +261,10 @@ export function useImageConsole() {
   useEffect(() => {
     requestRecordsRef.current = requestRecords;
   }, [requestRecords]);
+
+  useEffect(() => {
+    selectedRequestIdRef.current = selectedRequestId;
+  }, [selectedRequestId]);
 
   const clearQueueTimer = useCallback(() => {
     if (queueTimerRef.current == null) return;
@@ -249,16 +286,127 @@ export function useImageConsole() {
 
     void loadCachedRequests().then((records) => {
       if (cancelled) return;
-      const runtimeRecords = prepareRecordsForRuntime(records);
-      requestRecordsRef.current = runtimeRecords;
-      setRequestRecords(runtimeRecords);
-      setSelectedRequestId(runtimeRecords[runtimeRecords.length - 1]?.id || null);
+      requestRecordsRef.current = records;
+      setRequestRecords(records);
+      setSelectedRequestId(records[records.length - 1]?.id || null);
     });
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedRequestId) {
+      setSelectedRequestDetailLoadingId(null);
+      if (requestRecordsRef.current.some((request) => request.images.length || request.response != null)) {
+        commitRecords((records) => keepOnlySelectedRequestDetails(records, null));
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const selectedRequest = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
+    if (!selectedRequest) {
+      setSelectedRequestDetailLoadingId(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    commitRecords((records) => keepOnlySelectedRequestDetails(records, selectedRequestId));
+
+    const currentSelected = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
+    if (
+      !currentSelected ||
+      currentSelected.status !== "done" ||
+      !currentSelected.hasCachedDetails ||
+      currentSelected.detailsMissing ||
+      currentSelected.images.length ||
+      currentSelected.response != null
+    ) {
+      setSelectedRequestDetailLoadingId(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSelectedRequestDetailLoadingId(selectedRequestId);
+
+    void loadRequestDetails(selectedRequestId)
+      .then(async (detail) => {
+        if (cancelled) return;
+
+        const thumbnail =
+          detail?.thumbnail ||
+          (detail?.images?.[0] ? await prepareImageForThumbnailCache(detail.images[0]) : selectedRequest.thumbnail || null);
+
+        commitRecords((records) =>
+          records.map((request) =>
+            request.id === selectedRequestId
+              ? {
+                  ...request,
+                  images: (detail?.images || []).map(prepareImageForRuntime),
+                  response: detail?.response ?? null,
+                  thumbnail: request.thumbnail || thumbnail || null,
+                  detailsMissing: !detail,
+                }
+              : request,
+          ),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSelectedRequestDetailLoadingId((current) => (current === selectedRequestId ? null : current));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [commitRecords, selectedRequestId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const pendingRecords = requestRecordsRef.current.filter(
+      (request) =>
+        request.status === "done" &&
+        !request.thumbnail &&
+        request.hasCachedDetails &&
+        !request.detailsMissing &&
+        request.id !== selectedRequestId &&
+        !thumbnailBackfillRef.current.has(request.id),
+    );
+
+    if (!pendingRecords.length) return () => {
+      cancelled = true;
+    };
+
+    void (async () => {
+      for (const request of pendingRecords) {
+        if (cancelled) return;
+        thumbnailBackfillRef.current.add(request.id);
+
+        const detail = await loadRequestDetails(request.id);
+        if (cancelled || !detail) continue;
+
+        const thumbnail = detail.thumbnail || (detail.images[0] ? await prepareImageForThumbnailCache(detail.images[0]) : null);
+        if (cancelled || !thumbnail) continue;
+
+        commitRecords((records) =>
+          records.map((item) => (item.id === request.id ? { ...item, thumbnail } : item)),
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [commitRecords, requestRecords, selectedRequestId]);
 
   useEffect(() => {
     return () => {
@@ -326,11 +474,13 @@ export function useImageConsole() {
           path: `${request.title} · ${image.path}`,
         }));
         const detailImages = extractedImages.map(prepareImageForDetailCache).filter(isGeneratedImage);
+        const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
         const runtimeSourceImages =
           detailImages.length === extractedImages.length && detailImages.length > 0 ? detailImages : extractedImages;
-        const images = runtimeSourceImages.map(prepareImageForRuntime);
+        const images = shouldKeepRuntimeDetails ? runtimeSourceImages.map(prepareImageForRuntime) : [];
+        const thumbnail = extractedImages[0] ? await prepareThumbnailFromImage(extractedImages[0]) : null;
         const displayResponse = sanitizeResponseForDisplay(body);
-        const missingImageMessage = images.length ? "" : missingImageOutputMessage(body);
+        const missingImageMessage = extractedImages.length ? "" : missingImageOutputMessage(body);
 
         void saveRequestDetails(
           [
@@ -338,6 +488,7 @@ export function useImageConsole() {
               ...request,
               images: detailImages,
               response: displayResponse,
+              thumbnail,
             },
           ],
           { prune: false },
@@ -348,12 +499,13 @@ export function useImageConsole() {
             item.id === requestId
               ? {
                   ...item,
-                  response: displayResponse,
+                  thumbnail: thumbnail || item.thumbnail || null,
+                  response: shouldKeepRuntimeDetails ? displayResponse : null,
                   images,
-                  status: images.length ? "done" : "error",
+                  status: extractedImages.length ? "done" : "error",
                   error: missingImageMessage,
                   endedAt: performance.now(),
-                  completedAt: images.length ? Date.now() : item.completedAt ?? null,
+                  completedAt: extractedImages.length ? Date.now() : item.completedAt ?? null,
                 }
               : item,
           ),
@@ -696,6 +848,8 @@ export function useImageConsole() {
     clearQueueTimer();
     wasQueueActiveRef.current = false;
     lastRequestStartedAtRef.current = 0;
+    setSelectedRequestDetailLoadingId(null);
+    thumbnailBackfillRef.current.clear();
     revokeObjectUrls(collectObjectUrls(requestRecordsRef.current));
     requestRecordsRef.current = [];
     setRequestRecords([]);
@@ -705,7 +859,11 @@ export function useImageConsole() {
   }, [clearQueueTimer]);
 
   const clearFailedRequests = useCallback(() => {
+    const removedIds = requestRecordsRef.current
+      .filter((request) => requestMatchesFilter(request, "failed"))
+      .map((request) => request.id);
     commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "failed")));
+    void deleteRequestDetails(removedIds);
     setStatusMessage({ state: "已清空失败", detail: "失败和已取消请求已删除。" });
   }, [commitRecords]);
 
@@ -747,6 +905,7 @@ export function useImageConsole() {
     statusMessage,
     connectionStatus,
     testConnectionStatus,
+    selectedRequestDetailLoadingId,
     endpointPreview,
     settingsOpen,
     clearDialogOpen,

@@ -30,6 +30,7 @@ import {
   mergePromptHistoryForDisplay,
   prepareImageForDetailCache,
   prepareImageForRuntime,
+  prepareImageForThumbnailCache,
   requestFilterCounts,
   pinPromptHistory,
   removePromptFromHistory,
@@ -459,6 +460,13 @@ describe("image console logic", () => {
     record.status = "done";
     record.images = [{ src: "data:image/png;base64," + "A".repeat(5000), kind: "base64", path: "$.data[0].b64_json" }];
     record.response = { data: [{ b64_json: "A".repeat(5000) }] };
+    record.thumbnail = {
+      src: "data:image/webp;base64," + "B".repeat(120),
+      kind: "base64",
+      path: "$.preview",
+      blob: new Blob(["thumbnail"], { type: "image/webp" }),
+      objectUrl: "blob:thumbnail",
+    };
 
     const [cached] = cachedRequestRecords([record]);
     const serialized = JSON.stringify(cached);
@@ -468,8 +476,11 @@ describe("image console logic", () => {
     expect("response" in cached).toBe(false);
     expect(cached.imageCount).toBe(1);
     expect(cached.hasCachedDetails).toBe(true);
+    expect(cached.thumbnail?.src.startsWith("data:image/webp;base64,")).toBe(true);
+    expect(cached.thumbnail).not.toHaveProperty("blob");
+    expect(cached.thumbnail).not.toHaveProperty("objectUrl");
     expect(serialized.includes("data:image/png;base64")).toBe(false);
-    expect(serialized.includes("b64_json")).toBe(false);
+    expect(serialized.includes("blob:thumbnail")).toBe(false);
     expect(restored.imageCount).toBe(1);
   });
 
@@ -593,6 +604,16 @@ describe("image console logic", () => {
     expect(runtimeImage.src).toMatch(/^blob:/);
     expect(runtimeImage.objectUrl).toBe(runtimeImage.src);
     expect(runtimeImage).not.toHaveProperty("blob");
+  });
+
+  test("prepares compact thumbnail images for list previews", async () => {
+    const [image] = extractImages({ data: [{ b64_json: PNG_BASE64 }] }, "png");
+    const thumbnail = await prepareImageForThumbnailCache(image);
+
+    expect(thumbnail?.src).toMatch(/^data:image\/webp;base64,/);
+    expect(thumbnail?.kind).toBe("base64");
+    expect(thumbnail).not.toHaveProperty("blob");
+    expect(thumbnail).not.toHaveProperty("objectUrl");
   });
 
   test("explains encrypted response content without image output", () => {

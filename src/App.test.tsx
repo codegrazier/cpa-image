@@ -190,6 +190,45 @@ describe("App", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe("gpt-image-2");
   });
 
+  test("moves between request cards with arrow keys after clicking a card", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0, n: 2 });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ b64_json: WEBP_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^gpt-image-2$/ }));
+
+    const requestButtons = await screen.findAllByRole("button", { name: /查看 .* 的生成结果/ });
+    expect(requestButtons).toHaveLength(2);
+
+    const firstTitle = requestButtons[0].getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
+    const secondTitle = requestButtons[1].getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+
+    await user.click(requestButtons[0]);
+    expect(requestButtons[0]).toHaveFocus();
+    expect(within(resultPanel).getByText(firstTitle)).toBeInTheDocument();
+
+    await user.keyboard("{ArrowDown}");
+    expect(requestButtons[1]).toHaveFocus();
+    expect(await within(resultPanel).findByText(secondTitle)).toBeInTheDocument();
+  });
+
   test("shows revised_prompt tooltip on the response JSON button", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });

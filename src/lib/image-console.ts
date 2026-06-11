@@ -121,6 +121,7 @@ export interface ImageRequestRecord {
   imageCount?: number;
   hasCachedDetails?: boolean;
   detailsMissing?: boolean;
+  thumbnail?: GeneratedImage | null;
   status: RequestStatus;
   createdAt: number;
   startedAt: number | null;
@@ -138,6 +139,7 @@ export interface CachedRequestRecord
   extends Omit<ImageRequestRecord, "images" | "response" | "controller" | "cancelRequested" | "apiKey"> {
   imageCount: number;
   hasCachedDetails: boolean;
+  thumbnail?: GeneratedImage | null;
 }
 
 export const DEFAULTS: AppSettings = {
@@ -618,6 +620,7 @@ export function prepareRequestForCache(request: ImageRequestRecord): CachedReque
     sourcePrompt: request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload)),
     imageCount: requestImageCount(request),
     hasCachedDetails: Boolean((request.images?.length || 0) > 0 || request.response != null),
+    thumbnail: request.thumbnail ? serializeGeneratedImage(request.thumbnail) : null,
     status,
     createdAt: request.createdAt,
     startedAt: request.startedAt,
@@ -642,13 +645,14 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
     imageCount: Number.parseInt(String(request.imageCount), 10) || (Array.isArray(request.images) ? request.images.length : 0),
     hasCachedDetails: Boolean(request.hasCachedDetails || request.response != null || request.images?.length),
     detailsMissing: Boolean(request.detailsMissing),
+    thumbnail: serializeGeneratedImage(request.thumbnail),
     status,
     createdAt: Number(request.createdAt) || 0,
     startedAt: Number(request.startedAt) || null,
     endedAt: Number(request.endedAt) || (status === "canceled" ? performance.now() : null),
     completedAt: Number(request.completedAt) || null,
-    images: Array.isArray(request.images) ? request.images : [],
-    response: request.response ?? null,
+    images: [],
+    response: null,
     error:
       request.status === "running" || request.status === "queued" ? "页面刷新，请求已中断。" : request.error || "",
     controller: null,
@@ -658,6 +662,24 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
 
 export function cachedRequestRecords(records: ImageRequestRecord[] = []) {
   return records.map(prepareRequestForCache);
+}
+
+function serializeGeneratedImage(image: unknown): GeneratedImage | null {
+  if (!image || typeof image !== "object") return null;
+
+  const candidate = image as Partial<GeneratedImage>;
+  const src = String(candidate.src || "").trim();
+  const kind = candidate.kind === "url" ? "url" : candidate.kind === "base64" ? "base64" : "";
+  const path = String(candidate.path || "").trim();
+
+  if (!src || !kind || !path) return null;
+
+  return {
+    src,
+    kind,
+    path,
+    mimeType: candidate.mimeType || undefined,
+  };
 }
 
 export function requestMatchesFilter(request: Pick<ImageRequestRecord, "status">, filter: RequestFilter = "all") {
@@ -739,6 +761,73 @@ export function detectMimeFromBase64(base64: unknown, fallbackFormat = "png") {
   if (sample.startsWith("UklG")) return "image/webp";
   if (sample.startsWith("R0lG")) return "image/gif";
   return `image/${fallbackFormat || "png"}`;
+}
+
+function imageDimensionsToThumbnail(width: number, height: number, maxEdge: number) {
+  const longest = Math.max(width, height, 1);
+  const scale = Math.min(1, maxEdge / longest);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+async function dataUrlFromBlobThumbnail(blob: Blob, maxEdge = 160) {
+  if (typeof createImageBitmap !== "function" || typeof document === "undefined") return null;
+
+  let bitmap: ImageBitmap | null = null;
+
+  try {
+    bitmap = await createImageBitmap(blob);
+    const { width, height } = imageDimensionsToThumbnail(bitmap.width, bitmap.height, maxEdge);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+
+    context.drawImage(bitmap, 0, 0, width, height);
+    return canvas.toDataURL("image/webp", 0.82);
+  } catch {
+    return null;
+  } finally {
+    try {
+      bitmap?.close?.();
+    } catch {
+      // Ignore bitmap cleanup failures.
+    }
+  }
+}
+
+export async function prepareImageForThumbnailCache(
+  image: GeneratedImage,
+  maxEdge = 160,
+): Promise<GeneratedImage | null> {
+  if (image.kind === "url") {
+    return {
+      src: image.src,
+      kind: "url",
+      path: image.path,
+      mimeType: image.mimeType || "image/webp",
+    };
+  }
+
+  const blob = imageBlobFromImage(image);
+  if (!blob) {
+    return null;
+  }
+
+  const thumbnailSrc = await dataUrlFromBlobThumbnail(blob, maxEdge);
+  if (!thumbnailSrc) {
+    return null;
+  }
+
+  return {
+    src: thumbnailSrc,
+    kind: "base64",
+    path: image.path,
+    mimeType: "image/webp",
+  };
 }
 
 function base64ToDataUrl(value: unknown, fallbackFormat = "png") {

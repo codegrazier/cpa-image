@@ -30,3 +30,24 @@ Object.defineProperty(globalThis.URL, "revokeObjectURL", {
   configurable: true,
   value: () => undefined,
 });
+
+Object.defineProperty(globalThis, "createImageBitmap", {
+  configurable: true,
+  value: async () => ({
+    width: 512,
+    height: 512,
+    close: () => undefined,
+  }),
+});
+
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  configurable: true,
+  value: () => ({
+    drawImage: () => undefined,
+  }),
+});
+
+Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", {
+  configurable: true,
+  value: () => "data:image/webp;base64,dGVzdC10aHVtYm5haWw=",
+});

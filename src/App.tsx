@@ -14,7 +14,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -43,12 +43,13 @@ function statusVariant(status: string) {
   return "secondary" as const;
 }
 
-function selectedRequestEmptyText(request: ImageRequestRecord | null) {
+function selectedRequestEmptyText(request: ImageRequestRecord | null, loading = false) {
   if (!request) return "暂无图片";
   if (request.status === "queued") return "该请求正在排队";
   if (request.status === "running") return "该请求正在等待响应";
   if (request.status === "canceled") return request.error || "该请求已取消";
   if (request.status === "error") return request.error || "该请求失败";
+  if (loading) return "历史详情加载中";
   if (request.detailsMissing) return "历史已恢复，图片详情未能从本地缓存读取。";
   return "响应中没有找到图片";
 }
@@ -103,6 +104,8 @@ function RequestRow({
   timing,
   imageCount,
   payloadSize,
+  buttonRef,
+  onKeyDown,
   onSelect,
 }: {
   request: ImageRequestRecord;
@@ -110,12 +113,14 @@ function RequestRow({
   timing: string;
   imageCount: number;
   payloadSize: string;
+  buttonRef?: (element: HTMLButtonElement | null) => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onSelect: () => void;
 }) {
   const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
   const requestDetail =
     request.error || (request.status === "done" ? `${formatCompletionTime(request.completedAt)} · ${imageCount} 张图片` : "");
-  const thumbnail = request.images?.[0] || null;
+  const thumbnail = request.thumbnail || null;
 
   return (
     <button
@@ -125,12 +130,21 @@ function RequestRow({
         "hover:border-ring hover:shadow-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
         selected && "border-ring ring-[3px] ring-ring/20",
       )}
+      ref={buttonRef}
       onClick={onSelect}
+      onKeyDown={onKeyDown}
       aria-label={`查看 ${request.title} 的生成结果`}
     >
       <span className="flex size-[5.5rem] shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/20">
         {thumbnail ? (
-          <img src={thumbnail.src} alt="" aria-hidden="true" className="block h-full w-full object-cover object-center" />
+          <img
+            src={thumbnail.src}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            className="block h-full w-full object-cover object-center"
+          />
         ) : (
           <ImageIcon aria-hidden="true" className="size-6 text-muted-foreground" />
         )}
@@ -175,6 +189,22 @@ function RequestListPanel({
 }) {
   const hasRequests = requestCounts.all > 0;
   const hasFailedRequests = requestCounts.failed > 0;
+  const requestButtonRefs = useRef(new Map<string, HTMLButtonElement | null>());
+
+  function focusRequest(id: string) {
+    requestButtonRefs.current.get(id)?.focus();
+  }
+
+  function moveSelection(currentId: string, direction: -1 | 1) {
+    const currentIndex = filteredRequests.findIndex((request) => request.id === currentId);
+    if (currentIndex < 0) return;
+
+    const nextRequest = filteredRequests[currentIndex + direction];
+    if (!nextRequest) return;
+
+    onSelectRequest(nextRequest.id);
+    focusRequest(nextRequest.id);
+  }
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-col rounded-lg border bg-card shadow-sm" aria-label="请求列表">
@@ -241,6 +271,22 @@ function RequestListPanel({
                 timing={formatRequestTiming(request, now)}
                 imageCount={requestImageCount(request)}
                 payloadSize={payloadSize(request.payload)}
+                buttonRef={(element) => {
+                  if (element) {
+                    requestButtonRefs.current.set(request.id, element);
+                  } else {
+                    requestButtonRefs.current.delete(request.id);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    moveSelection(request.id, 1);
+                  } else if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    moveSelection(request.id, -1);
+                  }
+                }}
                 onSelect={() => onSelectRequest(request.id)}
               />
             ))
@@ -260,7 +306,7 @@ function RequestListPanel({
   );
 }
 
-function Gallery({ request }: { request: ImageRequestRecord | null }) {
+function Gallery({ request, loading }: { request: ImageRequestRecord | null; loading: boolean }) {
   const images = request?.status === "done" && !request.detailsMissing ? request.images : [];
 
   if (!images?.length) {
@@ -268,9 +314,9 @@ function Gallery({ request }: { request: ImageRequestRecord | null }) {
       <Empty className="h-full min-h-90 border">
         <EmptyHeader>
           <EmptyMedia variant="icon">
-            <ImageIcon />
+            {loading ? <Loader2Icon className="animate-spin" /> : <ImageIcon />}
           </EmptyMedia>
-          <EmptyTitle>{selectedRequestEmptyText(request)}</EmptyTitle>
+          <EmptyTitle>{selectedRequestEmptyText(request, loading)}</EmptyTitle>
         </EmptyHeader>
       </Empty>
     );
@@ -300,6 +346,7 @@ function Gallery({ request }: { request: ImageRequestRecord | null }) {
 function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
   const {
     selectedRequest,
+    selectedRequestDetailLoadingId,
     statusMessage,
     settings,
     selectedRequestTiming,
@@ -313,6 +360,7 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
   const canCancel = selectedRequest?.status === "queued" || selectedRequest?.status === "running";
   const canDownload = selectedRequest?.status === "done" && !selectedRequest.detailsMissing && selectedRequestDownload;
   const canReuse = Boolean(selectedRequest && reusablePromptForRequest(selectedRequest));
+  const selectedRequestDetailLoading = selectedRequestDetailLoadingId === selectedRequest?.id;
   const inputPromptTooltip = selectedRequest?.sourcePrompt?.trim() || "暂无输入 Prompt";
   const revisedPromptTooltip = revisedPromptForResponse(selectedRequest?.response) || "未找到 revised_prompt";
   const statusHeading =
@@ -388,7 +436,7 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
         </div>
 
         <div className="min-h-0 flex-1 p-4">
-          <Gallery request={selectedRequest} />
+          <Gallery request={selectedRequest} loading={selectedRequestDetailLoading} />
         </div>
       </div>
     </section>

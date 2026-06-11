@@ -22,11 +22,19 @@ interface RequestDetailEntry {
   id: string;
   images: GeneratedImage[];
   response: unknown;
+  thumbnail?: GeneratedImage | null;
   savedAt: number;
 }
 
 interface SaveRequestDetailsOptions {
   prune?: boolean;
+}
+
+interface RequestDetailEntry {
+  id: string;
+  images: GeneratedImage[];
+  response: unknown;
+  savedAt: number;
 }
 
 export function loadSettings(): AppSettings {
@@ -181,6 +189,7 @@ function requestDetailEntryFromRecord(request: ImageRequestRecord): RequestDetai
     id: request.id,
     images,
     response: request.response ?? null,
+    thumbnail: request.thumbnail ? prepareImageForDetailCache(request.thumbnail) : null,
     savedAt: Date.now(),
   };
 }
@@ -220,44 +229,54 @@ export async function saveRequestDetails(records: ImageRequestRecord[], options:
   }
 }
 
-async function hydrateRequestDetails(records: ImageRequestRecord[]) {
+export async function loadRequestDetails(id: string) {
   let db: IDBDatabase | null = null;
 
   try {
     db = await openRequestDetailDb();
-    if (!db) return records;
+    if (!db) return null;
 
     const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readonly");
     const done = transactionDone(transaction);
     const store = transaction.objectStore(REQUEST_DETAIL_STORE_NAME);
-    const hydrated = await Promise.all(
-      records.map(async (request) => {
-        if (!request.hasCachedDetails) return request;
-
-        const detail = await requestToPromise<RequestDetailEntry | undefined>(store.get(request.id));
-        if (!detail) {
-          return {
-            ...request,
-            detailsMissing: request.images.length === 0 && request.response == null,
-          };
-        }
-
-        return {
-          ...request,
-          images: Array.isArray(detail.images) ? detail.images : request.images,
-          response: detail.response ?? request.response,
-          detailsMissing: false,
-        };
-      }),
-    );
+    const detail = await requestToPromise<RequestDetailEntry | undefined>(store.get(id));
 
     await done;
-    return hydrated;
+    if (!detail) return null;
+
+    return {
+      images: Array.isArray(detail.images) ? detail.images : [],
+      response: detail.response ?? null,
+      thumbnail: detail.thumbnail ?? null,
+      savedAt: detail.savedAt,
+    };
   } catch {
-    return records.map((request) => ({
-      ...request,
-      detailsMissing: request.hasCachedDetails && request.images.length === 0 && request.response == null,
-    }));
+    return null;
+  } finally {
+    closeDb(db);
+  }
+}
+
+export async function deleteRequestDetails(ids: string[]) {
+  if (!ids.length) return;
+
+  let db: IDBDatabase | null = null;
+
+  try {
+    db = await openRequestDetailDb();
+    if (!db) return;
+
+    const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
+    const done = transactionDone(transaction);
+    const store = transaction.objectStore(REQUEST_DETAIL_STORE_NAME);
+
+    for (const id of ids) {
+      store.delete(id);
+    }
+
+    await done;
+  } catch {
+    // Ignore cache cleanup failures.
   } finally {
     closeDb(db);
   }
@@ -288,8 +307,7 @@ export async function loadCachedRequests() {
   try {
     const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) return [];
-    const restored = parsed.map(restoreCachedRequest);
-    return hydrateRequestDetails(restored);
+    return parsed.map(restoreCachedRequest);
   } catch {
     return [];
   }
@@ -308,8 +326,6 @@ export function saveCachedRequests(records: ImageRequestRecord[]) {
       // Ignore quota failures.
     }
   }
-
-  void saveRequestDetails(records);
 }
 
 export function clearCachedRequests() {
