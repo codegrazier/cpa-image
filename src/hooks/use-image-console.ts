@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { fetchModels, postImageGeneration } from "@/lib/api";
+import { fetchModels, postImageEdit, postImageGeneration } from "@/lib/api";
 import {
   addPromptToHistory,
+  buildEditImagePayload,
+  buildEditImageRequests,
   buildChatCompletionsImagePayload,
   buildChatCompletionsImageRequests,
   buildGenerationRequests,
@@ -19,7 +21,9 @@ import {
   imageDownloadName,
   missingImageOutputMessage,
   mergePromptHistoryForDisplay,
+  type ConsoleMode,
   normalizeChatCompletionsEndpoint,
+  normalizeImageEditsEndpoint,
   normalizeImageEndpoint,
   normalizeModelsEndpoint,
   normalizeRequestConcurrency,
@@ -28,8 +32,14 @@ import {
   payloadOutputFormat,
   payloadSize,
   prepareImageForDetailCache,
+  prepareEditInputImage,
   prepareImageForRuntime,
   prepareImageForThumbnailCache,
+  DEFAULT_STORED_SETTINGS,
+  normalizeModeSettings,
+  normalizeSharedSettings,
+  normalizeStrictPromptText,
+  MAX_EDIT_INPUT_IMAGES,
   requestControlSummary,
   requestFilterCounts,
   requestImageCount,
@@ -39,19 +49,24 @@ import {
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
   sortedRequestRecordsForFilter,
+  type EditInputImage,
   type AppSettings,
   type GeneratedImage,
   type GenerationMethod,
   type ImageRequestRecord,
+  type ModeSettings,
+  type SharedSettings,
+  type StoredConsoleSettings,
   type RequestFilter,
+  mergeSettingsForMode,
   unpinPromptHistory,
 } from "@/lib/image-console";
 import {
   clearCachedRequests,
   loadCachedRequests,
-  loadLastPrompt,
-  loadPromptHistory,
-  loadPinnedPromptHistory,
+  loadLastPromptForMode,
+  loadPromptHistoryForMode,
+  loadPinnedPromptHistoryForMode,
   loadRequestDetails,
   loadSettings,
   resetSettings as resetStoredSettings,
@@ -63,14 +78,10 @@ import {
   saveRequestDetails,
   saveSettings,
 } from "@/lib/storage";
+import { getCopy, useI18n } from "@/lib/i18n";
 
 type ConnectionTone = "default" | "busy" | "ok" | "error";
 type ConnectionStatus = { label: string; tone: ConnectionTone };
-
-const DEFAULT_TEST_CONNECTION_STATUS: ConnectionStatus = {
-  label: "测试",
-  tone: "default",
-};
 
 interface StatusMessage {
   state: string;
@@ -84,14 +95,21 @@ function normalizeSettings(values: AppSettings): AppSettings {
     model: String(values.model || DEFAULTS.model).trim(),
     llmModel: String(values.llmModel || DEFAULTS.llmModel).trim(),
     rememberKey: Boolean(values.rememberKey),
+    strictPromptText: normalizeStrictPromptText(values.strictPromptText),
     strictPrompt: values.strictPrompt ?? DEFAULTS.strictPrompt,
     requestConcurrency: normalizeRequestConcurrency(values.requestConcurrency),
     requestIntervalSeconds: normalizeRequestIntervalSeconds(values.requestIntervalSeconds),
     n: imageCountFromValue(values.n || DEFAULTS.n),
+    background: DEFAULTS.background,
+    outputFormat: DEFAULTS.outputFormat,
   };
 }
 
-function queueStatusMessage(records: ImageRequestRecord[], settings: AppSettings): StatusMessage {
+function queueStatusMessage(
+  records: ImageRequestRecord[],
+  settings: AppSettings,
+  copy: ReturnType<typeof getCopy>,
+): StatusMessage {
   const runningCount = records.filter((request) => request.status === "running").length;
   const queuedCount = records.filter((request) => request.status === "queued").length;
   const doneCount = records.filter((request) => request.status === "done").length;
@@ -100,23 +118,30 @@ function queueStatusMessage(records: ImageRequestRecord[], settings: AppSettings
   const imageCount = records.reduce((sum, request) => sum + requestImageCount(request), 0);
 
   if (runningCount + queuedCount > 0) {
-    return {
-      state: "队列运行中",
-      detail: `${requestControlSummary(settings)} · 运行 ${runningCount} · 排队 ${queuedCount} · 完成 ${doneCount} · 失败 ${failedCount}`,
-    };
+    return copy.queueRunning(settings, { running: runningCount, queued: queuedCount, done: doneCount, failed: failedCount });
   }
 
   if (!records.length) {
-    return {
-      state: "等待生成",
-      detail: "配置 URL 和 API Key 后即可开始。",
-    };
+    return copy.waitingGeneration;
   }
 
-  return {
-    state: `队列完成 ${imageCount} 张`,
-    detail: `${requestControlSummary(settings)} · 完成 ${doneCount} · 失败 ${failedCount} · 取消 ${canceledCount}`,
-  };
+  return copy.queueComplete(settings, { done: doneCount, failed: failedCount, canceled: canceledCount, imageCount });
+}
+
+function adjacentVisibleRequestId(records: ImageRequestRecord[], requestId: string, filter: RequestFilter) {
+  const visibleRequests = sortedRequestRecordsForFilter(records, filter);
+  const index = visibleRequests.findIndex((request) => request.id === requestId);
+  if (index < 0) return null;
+
+  for (let cursor = index + 1; cursor < visibleRequests.length; cursor += 1) {
+    if (requestMatchesFilter(visibleRequests[cursor], filter)) return visibleRequests[cursor].id;
+  }
+
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (requestMatchesFilter(visibleRequests[cursor], filter)) return visibleRequests[cursor].id;
+  }
+
+  return null;
 }
 
 function isActiveRequest(request: ImageRequestRecord) {
@@ -133,6 +158,9 @@ function collectObjectUrls(records: ImageRequestRecord[]) {
   for (const request of records) {
     for (const image of request.images || []) {
       if (image.objectUrl) urls.add(image.objectUrl);
+    }
+    for (const image of request.editImages || []) {
+      if (image.src.startsWith("blob:")) urls.add(image.src);
     }
   }
 
@@ -154,7 +182,11 @@ function revokeRemovedObjectUrls(previousRecords: ImageRequestRecord[], nextReco
 }
 
 function stripRequestRuntimeDetails(request: ImageRequestRecord): ImageRequestRecord {
-  if (!request.images.length && request.response == null) {
+  if (request.status === "queued" || request.status === "running") {
+    return request;
+  }
+
+  if (!request.images.length && request.response == null && !request.editImages?.length) {
     return request;
   }
 
@@ -162,6 +194,7 @@ function stripRequestRuntimeDetails(request: ImageRequestRecord): ImageRequestRe
     ...request,
     images: [],
     response: null,
+    editImages: [],
   };
 }
 
@@ -187,64 +220,101 @@ async function prepareThumbnailFromImage(image: GeneratedImage): Promise<Generat
   }
 }
 
-function initialSettings() {
+function initialStoredSettings(): StoredConsoleSettings {
   try {
-    return normalizeSettings(loadSettings());
+    return loadSettings();
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULT_STORED_SETTINGS };
   }
 }
 
-function initialPrompt() {
+function updateStoredSettingsForCurrentMode(
+  current: StoredConsoleSettings,
+  currentMode: ConsoleMode,
+  values: AppSettings,
+): StoredConsoleSettings {
+  return {
+    shared: normalizeSharedSettings(values),
+    modeSettingsByMode: {
+      ...current.modeSettingsByMode,
+      [currentMode]: normalizeModeSettings(values),
+    },
+  };
+}
+
+function initialPrompt(mode: ConsoleMode) {
   try {
-    return loadLastPrompt();
+    return loadLastPromptForMode(mode);
   } catch {
     return "";
   }
 }
 
-function initialPromptHistory() {
+function initialPromptHistory(mode: ConsoleMode) {
   try {
-    return loadPromptHistory();
+    return loadPromptHistoryForMode(mode);
   } catch {
     return [];
   }
 }
 
-function initialPinnedPromptHistory() {
+function initialPinnedPromptHistory(mode: ConsoleMode) {
   try {
-    return loadPinnedPromptHistory();
+    return loadPinnedPromptHistoryForMode(mode);
   } catch {
     return [];
   }
 }
 
 export function useImageConsole() {
-  const [settings, setSettings] = useState<AppSettings>(() => initialSettings());
-  const [prompt, setPromptState] = useState(() => initialPrompt());
-  const [promptHistory, setPromptHistory] = useState<string[]>(() => initialPromptHistory());
-  const [pinnedPromptHistory, setPinnedPromptHistory] = useState<string[]>(() => initialPinnedPromptHistory());
+  const { copy } = useI18n();
+  const [storedSettings, setStoredSettings] = useState<StoredConsoleSettings>(() => initialStoredSettings());
+  const [mode, setMode] = useState<ConsoleMode>("generate");
+  const [promptByMode, setPromptByMode] = useState<Record<ConsoleMode, string>>(() => ({
+    generate: initialPrompt("generate"),
+    edit: initialPrompt("edit"),
+  }));
+  const [promptHistoryByMode, setPromptHistoryByMode] = useState<Record<ConsoleMode, string[]>>(() => ({
+    generate: initialPromptHistory("generate"),
+    edit: initialPromptHistory("edit"),
+  }));
+  const [pinnedPromptHistoryByMode, setPinnedPromptHistoryByMode] = useState<Record<ConsoleMode, string[]>>(() => ({
+    generate: initialPinnedPromptHistory("generate"),
+    edit: initialPinnedPromptHistory("edit"),
+  }));
+  const [editImages, setEditImages] = useState<EditInputImage[]>([]);
+  const [historicalEditImageValue, setHistoricalEditImageValue] = useState("");
   const [requestRecords, setRequestRecords] = useState<ImageRequestRecord[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedRequestFilter, setSelectedRequestFilter] = useState<RequestFilter>("all");
   const [statusMessage, setStatusMessage] = useState<StatusMessage>({
-    state: "等待生成",
-    detail: "配置 URL 和 API Key 后即可开始。",
+    state: copy.waitingGeneration.state,
+    detail: copy.waitingGeneration.detail,
   });
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
-    label: "配置",
+    label: copy.tests.connectionReset,
     tone: "default",
   });
-  const [testConnectionStatus, setTestConnectionStatus] = useState<ConnectionStatus>(() => DEFAULT_TEST_CONNECTION_STATUS);
+  const [testConnectionStatus, setTestConnectionStatus] = useState<ConnectionStatus>(() => ({
+    label: copy.tests.test,
+    tone: "default",
+  }));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [jsonDialogOpen, setJsonDialogOpen] = useState(false);
   const [now, setNow] = useState(() => performance.now());
   const [selectedRequestDetailLoadingId, setSelectedRequestDetailLoadingId] = useState<string | null>(null);
 
+  const settings = useMemo(
+    () => mergeSettingsForMode(storedSettings.shared, storedSettings.modeSettingsByMode[mode]),
+    [mode, storedSettings],
+  );
   const settingsRef = useRef(settings);
+  const storedSettingsRef = useRef(storedSettings);
   const requestRecordsRef = useRef(requestRecords);
   const selectedRequestIdRef = useRef<string | null>(selectedRequestId);
+  const modeRef = useRef<ConsoleMode>("generate");
+  const editImagesRef = useRef<EditInputImage[]>(editImages);
   const thumbnailBackfillRef = useRef(new Set<string>());
   const queueTimerRef = useRef<number | null>(null);
   const lastRequestStartedAtRef = useRef(0);
@@ -259,12 +329,61 @@ export function useImageConsole() {
   }, [settings]);
 
   useEffect(() => {
+    storedSettingsRef.current = storedSettings;
+  }, [storedSettings]);
+
+  useEffect(() => {
     requestRecordsRef.current = requestRecords;
   }, [requestRecords]);
 
   useEffect(() => {
     selectedRequestIdRef.current = selectedRequestId;
   }, [selectedRequestId]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  useEffect(() => {
+    setConnectionStatus((current) => ({
+      label: current.tone === "ok" ? copy.tests.connectionSaved : copy.tests.connectionReset,
+      tone: current.tone,
+    }));
+    setTestConnectionStatus((current) => {
+      if (current.tone === "busy") {
+        return { label: copy.tests.connectionTesting, tone: "busy" };
+      }
+      if (current.tone === "ok") {
+        return { label: copy.tests.connectionNormal, tone: "ok" };
+      }
+      if (current.tone === "error") {
+        return { label: copy.tests.connectionFailed, tone: "error" };
+      }
+      return { label: copy.tests.test, tone: "default" };
+    });
+    if (!requestRecordsRef.current.length) {
+      setStatusMessage(copy.waitingGeneration);
+    }
+  }, [copy]);
+
+  useEffect(() => {
+    const previousImages = editImagesRef.current;
+    const previousUrls = new Set(previousImages.map((image) => image.src).filter((src) => src.startsWith("blob:")));
+    const nextUrls = new Set(editImages.map((image) => image.src).filter((src) => src.startsWith("blob:")));
+    const removedUrls = [...previousUrls].filter((url) => !nextUrls.has(url));
+
+    if (removedUrls.length) {
+      revokeObjectUrls(removedUrls);
+    }
+
+    editImagesRef.current = editImages;
+  }, [editImages]);
+
+  useEffect(() => {
+    return () => {
+      revokeObjectUrls(editImagesRef.current.map((image) => image.src).filter((src) => src.startsWith("blob:")));
+    };
+  }, [copy]);
 
   const clearQueueTimer = useCallback(() => {
     if (queueTimerRef.current == null) return;
@@ -277,7 +396,7 @@ export function useImageConsole() {
     const next = updater(previous);
     revokeRemovedObjectUrls(previous, next);
     requestRecordsRef.current = next;
-    saveCachedRequests(next);
+    void saveCachedRequests(next);
     setRequestRecords(next);
   }, []);
 
@@ -425,7 +544,7 @@ export function useImageConsole() {
       }
       revokeObjectUrls(collectObjectUrls(requestRecordsRef.current));
     };
-  }, [clearQueueTimer]);
+  }, [clearQueueTimer, copy]);
 
   const runRequest = useCallback(
     async (requestId: string) => {
@@ -454,12 +573,25 @@ export function useImageConsole() {
         const request = requestRecordsRef.current.find((item) => item.id === requestId);
         if (!request) return;
 
-        const body = await postImageGeneration(
-          request.endpoint,
-          request.apiKey || "",
-          request.payload,
-          controller.signal,
-        );
+        if (request.method === "edit" && !request.editImages?.length) {
+          throw new Error("编辑请求缺少输入图片。");
+        }
+
+        const body =
+          request.method === "edit"
+            ? await postImageEdit(
+                request.endpoint,
+                request.apiKey || "",
+                request.payload,
+                request.editImages || [],
+                controller.signal,
+              )
+            : await postImageGeneration(
+                request.endpoint,
+                request.apiKey || "",
+                request.payload,
+                controller.signal,
+              );
 
         if (cancelRequestedRef.current.has(requestId)) {
           commitRecords((records) =>
@@ -516,6 +648,7 @@ export function useImageConsole() {
                   error: missingImageMessage,
                   endedAt: performance.now(),
                   completedAt: extractedImages.length ? Date.now() : item.completedAt ?? null,
+                  editImages: [],
                 }
               : item,
           ),
@@ -536,6 +669,7 @@ export function useImageConsole() {
                         ? null
                         : sanitizeResponseForDisplay(typedError.responseBody),
                   endedAt: performance.now(),
+                  editImages: [],
                 }
               : item,
           ),
@@ -586,7 +720,7 @@ export function useImageConsole() {
     window.setTimeout(() => {
       scheduleQueueRef.current();
     }, 0);
-  }, []);
+  }, [copy]);
 
   useEffect(() => {
     scheduleQueueRef.current = scheduleQueue;
@@ -608,7 +742,7 @@ export function useImageConsole() {
 
     if (hasActive) {
       wasQueueActiveRef.current = true;
-      setStatusMessage(queueStatusMessage(requestRecords, settings));
+      setStatusMessage(queueStatusMessage(requestRecords, settings, copy));
       return;
     }
 
@@ -616,9 +750,9 @@ export function useImageConsole() {
       wasQueueActiveRef.current = false;
       lastRequestStartedAtRef.current = 0;
       clearQueueTimer();
-      setStatusMessage(queueStatusMessage(requestRecords, settings));
+      setStatusMessage(queueStatusMessage(requestRecords, settings, copy));
     }
-  }, [clearQueueTimer, requestRecords, settings]);
+  }, [clearQueueTimer, copy, requestRecords, settings]);
 
   const filteredRequests = useMemo(
     () => sortedRequestRecordsForFilter(requestRecords, selectedRequestFilter),
@@ -639,49 +773,79 @@ export function useImageConsole() {
   );
 
   const requestCounts = useMemo(() => requestFilterCounts(requestRecords), [requestRecords]);
+  const historicalEditImageOptions = useMemo(() => {
+    return sortedRequestRecordsForFilter(requestRecords, "done")
+      .filter((request) => request.hasCachedDetails && !request.detailsMissing && requestImageCount(request) > 0)
+      .flatMap((request) => {
+        const count = requestImageCount(request);
+        return Array.from({ length: count }, (_, imageIndex) => ({
+          value: `${request.id}:${imageIndex}`,
+          label: `${request.title} · 图片 ${imageIndex + 1}`,
+          thumbnail: request.thumbnail || null,
+          requestId: request.id,
+          requestTitle: request.title,
+          imageIndex,
+        }));
+      });
+  }, [requestRecords]);
 
   const endpointPreview = useMemo(() => {
     const baseUrl = settings.baseUrl || DEFAULTS.baseUrl;
+    const imageModel = String(settings.model || DEFAULTS.model).trim();
     const llmModel = String(settings.llmModel || DEFAULTS.llmModel).trim();
     return [
-      `generations (gpt-image-2)\n${normalizeImageEndpoint(baseUrl)}`,
+      `generations (${imageModel})\n${normalizeImageEndpoint(baseUrl)}`,
+      `edits (${imageModel})\n${normalizeImageEditsEndpoint(baseUrl)}`,
       `responses (${llmModel})\n${normalizeResponsesEndpoint(baseUrl)}`,
       `completions (${llmModel})\n${normalizeChatCompletionsEndpoint(baseUrl)}`,
     ].join("\n\n");
-  }, [settings.baseUrl, settings.llmModel]);
+  }, [settings.baseUrl, settings.llmModel, settings.model]);
 
   const selectedRequestJson = useMemo(() => {
     if (selectedRequest?.response == null) return "";
     return JSON.stringify(sanitizeResponseForDisplay(selectedRequest.response), null, 2);
   }, [selectedRequest]);
+  const prompt = promptByMode[mode];
 
   const setPrompt = useCallback((value: string) => {
-    setPromptState(value);
-    saveLastPrompt(value);
+    const currentMode = modeRef.current;
+    setPromptByMode((current) => ({
+      ...current,
+      [currentMode]: value,
+    }));
+    saveLastPrompt(value, currentMode);
   }, []);
 
   const updatePromptHistory = useCallback((updater: (history: string[]) => string[]) => {
-    setPromptHistory((current) => {
-      const next = updater(current);
-      savePromptHistory(next);
-      return next;
+    const currentMode = modeRef.current;
+    setPromptHistoryByMode((current) => {
+      const nextHistory = updater(current[currentMode]);
+      savePromptHistory(nextHistory, currentMode);
+      return {
+        ...current,
+        [currentMode]: nextHistory,
+      };
     });
   }, []);
 
   const updatePinnedPromptHistory = useCallback((updater: (history: string[]) => string[]) => {
-    setPinnedPromptHistory((current) => {
-      const next = updater(current);
-      savePinnedPromptHistory(next);
-      return next;
+    const currentMode = modeRef.current;
+    setPinnedPromptHistoryByMode((current) => {
+      const nextHistory = updater(current[currentMode]);
+      savePinnedPromptHistory(nextHistory, currentMode);
+      return {
+        ...current,
+        [currentMode]: nextHistory,
+      };
     });
   }, []);
 
   const selectPromptHistory = useCallback(
     (value: string) => {
       setPrompt(value);
-      setStatusMessage({ state: "历史 Prompt 已回填", detail: value });
+      setStatusMessage({ state: copy.promptHistory.refilled, detail: value });
     },
-    [setPrompt],
+    [copy, setPrompt],
   );
 
   const togglePromptHistoryPin = useCallback(
@@ -704,74 +868,168 @@ export function useImageConsole() {
     [updatePinnedPromptHistory, updatePromptHistory],
   );
 
+  const addHistoricalEditImage = useCallback(
+    async (value: string) => {
+      const [requestId, imageIndexText] = String(value || "").split(":");
+      const imageIndex = Number.parseInt(imageIndexText, 10);
+      if (!requestId || !Number.isInteger(imageIndex) || imageIndex < 0) return;
+
+      setHistoricalEditImageValue("");
+      const sourceKey = `${requestId}:${imageIndex}`;
+      const request = requestRecordsRef.current.find((item) => item.id === requestId);
+
+      if (!request) {
+        toast.error("未找到对应的历史请求。");
+        return;
+      }
+
+      if (editImagesRef.current.some((item) => item.sourceKey === sourceKey)) {
+        setStatusMessage({ state: "历史图片已存在", detail: `${request.title} · 图片 ${imageIndex + 1}` });
+        return;
+      }
+
+      if (editImagesRef.current.length >= MAX_EDIT_INPUT_IMAGES) {
+        const message = copy.generator.maxEditImages(MAX_EDIT_INPUT_IMAGES);
+        toast.error(message);
+        setStatusMessage({ state: "历史图片已满", detail: message });
+        return;
+      }
+
+      if (request.status !== "done" || !request.hasCachedDetails || request.detailsMissing) {
+        toast.error("该历史请求没有可用图片。");
+        return;
+      }
+
+      try {
+        const detail = await loadRequestDetails(requestId);
+        const sourceImage = detail?.images?.[imageIndex];
+        if (!sourceImage) {
+          toast.error("未找到该历史图片。");
+          return;
+        }
+
+        const mimeType = sourceImage.mimeType || "image/png";
+        const extension = mimeType.replace(/^image\//, "") || "png";
+        const image = prepareEditInputImage(sourceImage, `${request.title}-image-${imageIndex + 1}.${extension}`);
+
+        if (!image) {
+          toast.error("该历史图片暂不支持加入编辑。");
+          return;
+        }
+
+        setEditImages((current) => {
+          if (current.some((item) => item.sourceKey === sourceKey)) return current;
+          return [...current, { ...image, sourceKey }];
+        });
+        setStatusMessage({ state: "历史图片已加入编辑", detail: `${request.title} · 图片 ${imageIndex + 1}` });
+      } catch (error) {
+        const message = (error as Error).message || "历史图片加载失败。";
+        toast.error(message);
+        setStatusMessage({ state: "历史图片加载失败", detail: message });
+      }
+    },
+    [copy],
+  );
+
   const updateSettings = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-    setSettings((current) => ({
-      ...current,
-      [key]: value,
-    }));
+    setStoredSettings((current) => {
+      if (
+        key === "baseUrl" ||
+        key === "apiKey" ||
+        key === "rememberKey" ||
+        key === "model" ||
+        key === "llmModel" ||
+        key === "strictPromptText" ||
+        key === "requestConcurrency" ||
+        key === "requestIntervalSeconds"
+      ) {
+        return {
+          ...current,
+          shared: {
+            ...current.shared,
+            [key]: value,
+          } as SharedSettings,
+        };
+      }
+
+      const currentMode = modeRef.current;
+      return {
+        ...current,
+        modeSettingsByMode: {
+          ...current.modeSettingsByMode,
+          [currentMode]: {
+            ...current.modeSettingsByMode[currentMode],
+            [key]: value,
+          } as ModeSettings,
+        },
+      };
+    });
     if (key === "baseUrl" || key === "apiKey") {
-      setTestConnectionStatus(DEFAULT_TEST_CONNECTION_STATUS);
+      setTestConnectionStatus({ label: copy.tests.test, tone: "default" });
     }
-  }, []);
+  }, [copy]);
 
   const saveCurrentSettings = useCallback(() => {
     const normalized = normalizeSettings(settingsRef.current);
-    setSettings(normalized);
+    const nextStoredSettings = updateStoredSettingsForCurrentMode(storedSettingsRef.current, modeRef.current, normalized);
+    setStoredSettings(nextStoredSettings);
+    storedSettingsRef.current = nextStoredSettings;
     settingsRef.current = normalized;
-    saveSettings(normalized);
-    setConnectionStatus({ label: "已保存", tone: "ok" });
+    saveSettings(nextStoredSettings);
+    setConnectionStatus({ label: copy.tests.connectionSaved, tone: "ok" });
     setStatusMessage({
-      state: "设置已保存",
-      detail: `${requestControlSummary(normalized)} · 生图模型 ${normalized.model} · LLM 模型 ${normalized.llmModel}`,
+      state: copy.tests.connectionSaved,
+      detail: `${copy.requestSummary(normalized)} · ${copy.settings.generationModel} ${normalized.model} · ${copy.settings.llmModel} ${normalized.llmModel}`,
     });
     clearQueueTimer();
     setSettingsOpen(false);
     scheduleQueueRef.current();
-  }, [clearQueueTimer]);
+  }, [clearQueueTimer, copy]);
 
   const resetSettings = useCallback(() => {
     resetStoredSettings();
-    const defaults = { ...DEFAULTS };
-    setSettings(defaults);
-    settingsRef.current = defaults;
-    setConnectionStatus({ label: "配置", tone: "default" });
-    setTestConnectionStatus(DEFAULT_TEST_CONNECTION_STATUS);
-    setStatusMessage({ state: "已重置", detail: "默认 URL 已恢复。" });
-  }, []);
+    const defaults = { ...DEFAULT_STORED_SETTINGS };
+    setStoredSettings(defaults);
+    storedSettingsRef.current = defaults;
+    settingsRef.current = mergeSettingsForMode(defaults.shared, defaults.modeSettingsByMode[modeRef.current]);
+    setConnectionStatus({ label: copy.tests.connectionReset, tone: "default" });
+    setTestConnectionStatus({ label: copy.tests.test, tone: "default" });
+    setStatusMessage({ state: copy.tests.connectionReset, detail: copy.tests.connectionResetDetail });
+  }, [copy]);
 
   const testConnection = useCallback(async () => {
     const currentSettings = settingsRef.current;
     const endpoint = normalizeModelsEndpoint(currentSettings.baseUrl);
-    setTestConnectionStatus({ label: "测试中", tone: "busy" });
-    setStatusMessage({ state: "测试连接", detail: endpoint });
+    setTestConnectionStatus({ label: copy.tests.connectionTesting, tone: "busy" });
+    setStatusMessage({ state: copy.tests.connectionTesting, detail: endpoint });
 
     try {
       await fetchModels(currentSettings.baseUrl, currentSettings.apiKey);
-      setTestConnectionStatus({ label: "连接正常", tone: "ok" });
-      setStatusMessage({ state: "连接正常", detail: "模型列表接口已返回。" });
+      setTestConnectionStatus({ label: copy.tests.connectionNormal, tone: "ok" });
+      setStatusMessage({ state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail });
     } catch (error) {
-      setTestConnectionStatus({ label: "连接失败", tone: "error" });
-      setStatusMessage({ state: "连接失败", detail: (error as Error).message });
+      setTestConnectionStatus({ label: copy.tests.connectionFailed, tone: "error" });
+      setStatusMessage({ state: copy.tests.connectionFailed, detail: (error as Error).message });
     }
-  }, []);
+  }, [copy]);
 
   const enqueueGeneration = useCallback(
-    (mode: "images" | "responses" | "completions") => {
+    (generationMode: "images" | "responses" | "completions") => {
       const currentSettings = normalizeSettings(settingsRef.current);
       const values = { ...currentSettings, prompt };
-      saveLastPrompt(prompt);
+      saveLastPrompt(prompt, modeRef.current);
 
       let requestPayloads;
       let endpoint: string;
       let method: GenerationMethod;
 
       try {
-        if (mode === "completions") {
+        if (generationMode === "completions") {
           const payload = buildChatCompletionsImagePayload(values);
           requestPayloads = buildChatCompletionsImageRequests(payload, values.n);
           endpoint = normalizeChatCompletionsEndpoint(values.baseUrl);
           method = "completions";
-        } else if (mode === "responses") {
+        } else if (generationMode === "responses") {
           const payload = buildResponsesImagePayload(values);
           requestPayloads = buildResponsesImageRequests(payload, values.n);
           endpoint = normalizeResponsesEndpoint(values.baseUrl);
@@ -789,9 +1047,14 @@ export function useImageConsole() {
         return false;
       }
 
-      saveSettings(currentSettings);
-      setSettings(currentSettings);
-      settingsRef.current = currentSettings;
+      const nextStoredSettings = updateStoredSettingsForCurrentMode(
+        storedSettingsRef.current,
+        modeRef.current,
+        currentSettings,
+      );
+      setStoredSettings(nextStoredSettings);
+      storedSettingsRef.current = nextStoredSettings;
+      saveSettings(nextStoredSettings);
       updatePromptHistory((history) => addPromptToHistory(history, prompt));
 
       const now = performance.now();
@@ -820,6 +1083,63 @@ export function useImageConsole() {
     [commitRecords, prompt, updatePromptHistory],
   );
 
+  const enqueueEditGeneration = useCallback(() => {
+    const currentSettings = normalizeSettings(settingsRef.current);
+    const values = { ...currentSettings, prompt };
+    saveLastPrompt(prompt, modeRef.current);
+
+    let requestPayloads;
+    let endpoint: string;
+    let method: GenerationMethod;
+    const runtimeImages = editImages.map((image) => ({ ...image }));
+
+    try {
+      const payload = buildEditImagePayload(values, runtimeImages);
+      requestPayloads = buildEditImageRequests(payload, values.n);
+      endpoint = normalizeImageEditsEndpoint(values.baseUrl);
+      method = "edit";
+    } catch (error) {
+      const message = (error as Error).message;
+      setStatusMessage({ state: "请求未创建", detail: message });
+      toast.error(message);
+      return false;
+    }
+
+    const nextStoredSettings = updateStoredSettingsForCurrentMode(
+      storedSettingsRef.current,
+      modeRef.current,
+      currentSettings,
+    );
+    setStoredSettings(nextStoredSettings);
+    storedSettingsRef.current = nextStoredSettings;
+    saveSettings(nextStoredSettings);
+    updatePromptHistory((history) => addPromptToHistory(history, prompt));
+
+    const now = performance.now();
+    const date = new Date();
+    const newRequests = createRequestRecords(
+      requestPayloads,
+      endpoint,
+      now,
+      date,
+      requestRecordsRef.current,
+      method,
+    ).map((request) => ({
+      ...request,
+      apiKey: currentSettings.apiKey,
+      editImages: runtimeImages,
+    }));
+
+    commitRecords((records) => [...records, ...newRequests]);
+    setSelectedRequestId((currentId) => currentId || newRequests[0]?.id || null);
+    setStatusMessage({
+      state: "请求已加入队列",
+      detail: `${generationMethodDisplayName(method)} · ${newRequests.length} 个新请求 · ${requestControlSummary(currentSettings)} · ${endpoint}`,
+    });
+    scheduleQueueRef.current();
+    return true;
+  }, [commitRecords, editImages, prompt, updatePromptHistory]);
+
   const cancelRequest = useCallback(
     (requestId: string) => {
       const request = requestRecordsRef.current.find((item) => item.id === requestId);
@@ -827,6 +1147,7 @@ export function useImageConsole() {
 
       const now = performance.now();
       const wasQueued = request.status === "queued";
+      const nextSelectedRequestId = adjacentVisibleRequestId(requestRecordsRef.current, requestId, selectedRequestFilter);
       cancelRequestedRef.current.add(requestId);
       controllersRef.current.get(requestId)?.abort();
 
@@ -839,15 +1160,51 @@ export function useImageConsole() {
                 endedAt: now,
                 error: wasQueued ? "请求已取消，未发送。" : "请求已取消",
                 cancelRequested: true,
+                editImages: [],
               }
             : item,
         ),
       );
+      setSelectedRequestId(nextSelectedRequestId);
       setStatusMessage({ state: "已取消请求", detail: request.title });
       scheduleQueueRef.current();
     },
-    [commitRecords],
+    [commitRecords, selectedRequestFilter],
   );
+
+  const cancelAllRequests = useCallback(() => {
+    const activeRequests = requestRecordsRef.current.filter(isActiveRequest);
+    if (!activeRequests.length) return;
+
+    const now = performance.now();
+    const runningRequests = activeRequests.filter((request) => request.status === "running");
+
+    for (const request of runningRequests) {
+      cancelRequestedRef.current.add(request.id);
+      controllersRef.current.get(request.id)?.abort();
+    }
+
+    clearQueueTimer();
+    wasQueueActiveRef.current = false;
+    lastRequestStartedAtRef.current = 0;
+    setSelectedRequestDetailLoadingId(null);
+
+    commitRecords((records) =>
+      records.map((item) =>
+        isActiveRequest(item)
+          ? {
+              ...item,
+              status: "canceled",
+              endedAt: now,
+              error: item.status === "queued" ? "请求已取消，未发送。" : "请求已取消",
+              cancelRequested: true,
+              editImages: [],
+            }
+          : item,
+      ),
+    );
+    setStatusMessage({ state: "已取消请求", detail: `${activeRequests.length} 个请求已取消。` });
+  }, [clearQueueTimer, commitRecords]);
 
   const clearAllRequests = useCallback(() => {
     for (const controller of controllersRef.current.values()) {
@@ -864,14 +1221,28 @@ export function useImageConsole() {
     requestRecordsRef.current = [];
     setRequestRecords([]);
     setSelectedRequestId(null);
-    clearCachedRequests();
+    void clearCachedRequests();
     setStatusMessage({ state: "已清空", detail: "所有请求缓存已清空。" });
   }, [clearQueueTimer]);
+
+  const clearCompletedRequests = useCallback(() => {
+    const removedIds = requestRecordsRef.current
+      .filter((request) => requestMatchesFilter(request, "done"))
+      .map((request) => request.id);
+
+    if (!removedIds.length) return;
+
+    setSelectedRequestDetailLoadingId(null);
+    commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "done")));
+    void deleteRequestDetails(removedIds);
+    setStatusMessage({ state: "已清空完成", detail: "已完成请求已删除。" });
+  }, [commitRecords]);
 
   const clearFailedRequests = useCallback(() => {
     const removedIds = requestRecordsRef.current
       .filter((request) => requestMatchesFilter(request, "failed"))
       .map((request) => request.id);
+    setSelectedRequestDetailLoadingId(null);
     commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "failed")));
     void deleteRequestDetails(removedIds);
     setStatusMessage({ state: "已清空失败", detail: "失败和已取消请求已删除。" });
@@ -882,9 +1253,9 @@ export function useImageConsole() {
       const reusablePrompt = reusablePromptForRequest(request);
       if (!reusablePrompt) return;
       setPrompt(reusablePrompt);
-      setStatusMessage({ state: "Prompt 已回填", detail: request.title });
+      setStatusMessage({ state: copy.promptHistory.refilled, detail: request.title });
     },
-    [setPrompt],
+    [copy, setPrompt],
   );
 
   const selectedRequestDownload = selectedRequest?.images?.[0]?.src
@@ -895,17 +1266,21 @@ export function useImageConsole() {
     : null;
 
   const selectedRequestTiming = selectedRequest ? formatRequestTiming(selectedRequest, now) : "-";
+  const currentPromptHistory = promptHistoryByMode[mode];
+  const currentPinnedPromptHistory = pinnedPromptHistoryByMode[mode];
   const promptHistoryEntries = useMemo(
-    () => mergePromptHistoryForDisplay(pinnedPromptHistory, promptHistory),
-    [pinnedPromptHistory, promptHistory],
+    () => mergePromptHistoryForDisplay(currentPinnedPromptHistory, currentPromptHistory),
+    [currentPinnedPromptHistory, currentPromptHistory],
   );
 
   return {
     settings,
     prompt,
+    mode,
+    editImages,
     promptHistory: promptHistoryEntries,
-    promptHistoryCount: promptHistory.length,
-    promptHistoryPinnedCount: pinnedPromptHistory.length,
+    promptHistoryCount: currentPromptHistory.length,
+    promptHistoryPinnedCount: currentPinnedPromptHistory.length,
     requestRecords,
     filteredRequests,
     selectedRequest,
@@ -924,7 +1299,12 @@ export function useImageConsole() {
     selectedRequestDownload,
     selectedRequestTiming,
     now,
+    historicalEditImageValue,
+    historicalEditImageOptions,
     setPrompt,
+    setMode,
+    setEditImages,
+    setHistoricalEditImageValue,
     updateSettings,
     setSelectedRequestId,
     setSelectedRequestFilter,
@@ -935,13 +1315,17 @@ export function useImageConsole() {
     resetSettings,
     testConnection,
     enqueueGeneration,
+    enqueueEditGeneration,
     cancelRequest,
+    cancelAllRequests,
     clearAllRequests,
+    clearCompletedRequests,
     clearFailedRequests,
     reusePrompt,
     selectPromptHistory,
     deletePromptHistory,
     togglePromptHistoryPin,
+    addHistoricalEditImage,
     payloadSize,
     requestImageCount,
     formatRequestTiming,

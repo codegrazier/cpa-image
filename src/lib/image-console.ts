@@ -1,10 +1,11 @@
-export const STORAGE_KEY = "gpt-image-2-console-settings";
-export const REQUEST_CACHE_KEY = "gpt-image-2-console-requests";
-export const LAST_PROMPT_KEY = "gpt-image-2-console-last-prompt";
-export const PROMPT_HISTORY_KEY = "gpt-image-2-console-prompt-history";
-export const PINNED_PROMPT_HISTORY_KEY = "gpt-image-2-console-pinned-prompts";
-export const REQUEST_DETAIL_DB_NAME = "gpt-image-2-console";
-export const REQUEST_DETAIL_DB_VERSION = 1;
+export const STORAGE_KEY = "CPA-Image-settings";
+export const REQUEST_CACHE_KEY = "CPA-Image-requests";
+export const LAST_PROMPT_KEY = "CPA-Image-last-prompt";
+export const PROMPT_HISTORY_KEY = "CPA-Image-prompt-history";
+export const PINNED_PROMPT_HISTORY_KEY = "CPA-Image-pinned-prompts";
+export const REQUEST_DETAIL_DB_NAME = "CPA-Image";
+export const REQUEST_DETAIL_DB_VERSION = 2;
+export const REQUEST_RECORDS_STORE_NAME = "request-records";
 export const REQUEST_DETAIL_STORE_NAME = "request-details";
 
 export const MIN_REQUEST_CONCURRENCY = 1;
@@ -12,7 +13,20 @@ export const MAX_REQUEST_CONCURRENCY = 100;
 export const MIN_REQUEST_INTERVAL_SECONDS = 0;
 export const MAX_REQUEST_INTERVAL_SECONDS = 3600;
 export const MAX_IMAGE_COUNT = 100;
+export const MAX_EDIT_INPUT_IMAGES = 5;
 export const MAX_PROMPT_HISTORY = 20;
+export const LAST_PROMPT_KEY_BY_MODE = {
+  generate: "CPA-Image-last-prompt",
+  edit: "CPA-Image-edit-last-prompt",
+} as const;
+export const PROMPT_HISTORY_KEY_BY_MODE = {
+  generate: "CPA-Image-prompt-history",
+  edit: "CPA-Image-edit-prompt-history",
+} as const;
+export const PINNED_PROMPT_HISTORY_KEY_BY_MODE = {
+  generate: "CPA-Image-pinned-prompts",
+  edit: "CPA-Image-edit-pinned-prompts",
+} as const;
 
 export const SIZE_OPTIONS = [
   "auto",
@@ -33,7 +47,8 @@ export type ImageSize = (typeof SIZE_OPTIONS)[number];
 export type ImageQuality = (typeof QUALITY_OPTIONS)[number];
 export type ImageBackground = (typeof BACKGROUND_OPTIONS)[number];
 export type ImageOutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number];
-export type GenerationMethod = "gpt-image-2" | "image_generation" | "completions";
+export type ConsoleMode = "generate" | "edit";
+export type GenerationMethod = "gpt-image-2" | "image_generation" | "completions" | "edit";
 export type RequestStatus = "queued" | "running" | "done" | "error" | "canceled" | string;
 export type RequestFilter = "all" | "active" | "done" | "failed";
 
@@ -43,6 +58,7 @@ export interface AppSettings {
   rememberKey: boolean;
   model: string;
   llmModel: string;
+  strictPromptText: string;
   strictPrompt: boolean;
   requestConcurrency: number | string;
   requestIntervalSeconds: number | string;
@@ -51,6 +67,25 @@ export interface AppSettings {
   n: number | string;
   background: ImageBackground;
   outputFormat: ImageOutputFormat;
+}
+
+export type SharedSettings = Pick<
+  AppSettings,
+  | "baseUrl"
+  | "apiKey"
+  | "rememberKey"
+  | "model"
+  | "llmModel"
+  | "strictPromptText"
+  | "requestConcurrency"
+  | "requestIntervalSeconds"
+>;
+
+export type ModeSettings = Pick<AppSettings, "size" | "quality" | "n" | "background" | "outputFormat" | "strictPrompt">;
+
+export interface StoredConsoleSettings {
+  shared: SharedSettings;
+  modeSettingsByMode: Record<ConsoleMode, ModeSettings>;
 }
 
 export interface GenerationValues extends AppSettings {
@@ -63,6 +98,15 @@ export interface ImageToolPayload {
   quality?: string;
   background?: string;
   output_format?: string;
+}
+
+export interface EditInputImage {
+  src: string;
+  name: string;
+  mimeType: string;
+  file?: File;
+  blob?: Blob;
+  sourceKey?: string;
 }
 
 export interface ChatCompletionMessage {
@@ -86,6 +130,10 @@ export interface RequestPayload {
   model?: string;
   prompt?: string;
   input?: string;
+  images?: Array<{
+    file_id?: string;
+    image_url?: string;
+  }>;
   messages?: ChatCompletionMessage[];
   n?: number | string;
   size?: string;
@@ -133,10 +181,11 @@ export interface ImageRequestRecord {
   controller?: AbortController | null;
   cancelRequested?: boolean;
   apiKey?: string;
+  editImages?: EditInputImage[];
 }
 
 export interface CachedRequestRecord
-  extends Omit<ImageRequestRecord, "images" | "response" | "controller" | "cancelRequested" | "apiKey"> {
+  extends Omit<ImageRequestRecord, "images" | "response" | "controller" | "cancelRequested" | "apiKey" | "editImages"> {
   imageCount: number;
   hasCachedDetails: boolean;
   thumbnail?: GeneratedImage | null;
@@ -148,6 +197,7 @@ export const DEFAULTS: AppSettings = {
   rememberKey: false,
   model: "gpt-image-2",
   llmModel: "gpt-5.5",
+  strictPromptText: "",
   strictPrompt: true,
   requestConcurrency: 2,
   requestIntervalSeconds: 60,
@@ -156,6 +206,34 @@ export const DEFAULTS: AppSettings = {
   n: 1,
   background: "auto",
   outputFormat: "png",
+};
+
+export const DEFAULT_SHARED_SETTINGS: SharedSettings = {
+  baseUrl: DEFAULTS.baseUrl,
+  apiKey: DEFAULTS.apiKey,
+  rememberKey: DEFAULTS.rememberKey,
+  model: DEFAULTS.model,
+  llmModel: DEFAULTS.llmModel,
+  strictPromptText: DEFAULTS.strictPromptText,
+  requestConcurrency: DEFAULTS.requestConcurrency,
+  requestIntervalSeconds: DEFAULTS.requestIntervalSeconds,
+};
+
+export const DEFAULT_MODE_SETTINGS: ModeSettings = {
+  size: DEFAULTS.size,
+  quality: DEFAULTS.quality,
+  n: DEFAULTS.n,
+  background: DEFAULTS.background,
+  outputFormat: DEFAULTS.outputFormat,
+  strictPrompt: DEFAULTS.strictPrompt,
+};
+
+export const DEFAULT_STORED_SETTINGS: StoredConsoleSettings = {
+  shared: { ...DEFAULT_SHARED_SETTINGS },
+  modeSettingsByMode: {
+    generate: { ...DEFAULT_MODE_SETTINGS },
+    edit: { ...DEFAULT_MODE_SETTINGS },
+  },
 };
 
 export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
@@ -183,7 +261,63 @@ export const REQUEST_FILTER_EMPTY_TEXT: Record<RequestFilter, string> = {
 export function generationMethodDisplayName(method: GenerationMethod | "" | null | undefined) {
   if (method === "image_generation") return "responses";
   if (method === "completions") return "completions";
+  if (method === "edit") return "edit";
   return "generations";
+}
+
+export const STRICT_PROMPT_HEADER = "请把下面的原始 Prompt 当作最终图像指令执行。";
+export const STRICT_PROMPT_FOOTER = "原始 Prompt:";
+
+export const DEFAULT_STRICT_PROMPT_TEXT = [
+  "不要改写、扩写、翻译、润色、补充主体、改变构图、改变风格、添加未出现的元素。",
+  "保留原文的风格强度、氛围、姿态、镜头语言、材质和光影，不要把它改得更保守或更中性。",
+  "不要删减关键词，不要替换成含糊说法，不要添加原文没有的内容。",
+  "必须逐字保持原始 Prompt 的语义、语言和细节不变。",
+].join("\n");
+
+function isSettingsRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeStrictPromptText(value: unknown) {
+  const text = String(value ?? "").replace(/\r\n/g, "\n");
+  return text.trim() ? text : DEFAULT_STRICT_PROMPT_TEXT;
+}
+
+export function normalizeSharedSettings(values: unknown = {}): SharedSettings {
+  const source = isSettingsRecord(values) ? values : {};
+  return {
+    ...DEFAULT_SHARED_SETTINGS,
+    baseUrl: String(source.baseUrl || DEFAULTS.baseUrl).trim() || DEFAULTS.baseUrl,
+    apiKey: String(source.apiKey || "").trim(),
+    rememberKey: Boolean(source.rememberKey),
+    model: String(source.model || DEFAULTS.model).trim() || DEFAULTS.model,
+    llmModel: String(source.llmModel || DEFAULTS.llmModel).trim() || DEFAULTS.llmModel,
+    strictPromptText: normalizeStrictPromptText(source.strictPromptText),
+    requestConcurrency: normalizeRequestConcurrency(source.requestConcurrency),
+    requestIntervalSeconds: normalizeRequestIntervalSeconds(source.requestIntervalSeconds),
+  };
+}
+
+export function normalizeModeSettings(values: unknown = {}): ModeSettings {
+  const source = (isSettingsRecord(values) ? values : {}) as Partial<ModeSettings>;
+  return {
+    ...DEFAULT_MODE_SETTINGS,
+    size: source.size || DEFAULTS.size,
+    quality: source.quality || DEFAULTS.quality,
+    n: imageCountFromValue(source.n || DEFAULTS.n),
+    background: source.background || DEFAULTS.background,
+    outputFormat: source.outputFormat || DEFAULTS.outputFormat,
+    strictPrompt: source.strictPrompt ?? DEFAULTS.strictPrompt,
+  };
+}
+
+export function mergeSettingsForMode(shared: SharedSettings, modeSettings: ModeSettings): AppSettings {
+  return {
+    ...DEFAULTS,
+    ...shared,
+    ...modeSettings,
+  };
 }
 
 function normalizePromptList(value: unknown, limit = MAX_PROMPT_HISTORY) {
@@ -282,6 +416,10 @@ export function normalizeResponsesEndpoint(baseUrl: string) {
   return routeFromBaseUrl(baseUrl, "/v1/responses");
 }
 
+export function normalizeImageEditsEndpoint(baseUrl: string) {
+  return routeFromBaseUrl(baseUrl, "/v1/images/edits");
+}
+
 export function normalizeChatCompletionsEndpoint(baseUrl: string) {
   return routeFromBaseUrl(baseUrl, "/v1/chat/completions");
 }
@@ -290,22 +428,29 @@ export function normalizeModelsEndpoint(baseUrl: string) {
   return routeFromBaseUrl(baseUrl, "/v1/models");
 }
 
-export function applyPromptPolicy(prompt: string, strictPrompt = DEFAULTS.strictPrompt) {
+export function buildStrictPromptPolicy(prompt: string, strictPromptText: unknown = DEFAULT_STRICT_PROMPT_TEXT) {
+  const text = normalizeStrictPromptText(strictPromptText);
+  return `${STRICT_PROMPT_HEADER}\n${text}\n\n${STRICT_PROMPT_FOOTER}\n${prompt}`;
+}
+
+export function applyPromptPolicy(
+  prompt: string,
+  strictPrompt = DEFAULTS.strictPrompt,
+  strictPromptText: unknown = DEFAULT_STRICT_PROMPT_TEXT,
+) {
   if (!strictPrompt) return prompt;
-  return `${STRICT_PROMPT_PREFIX}\n${prompt}`;
+  return buildStrictPromptPolicy(prompt, strictPromptText);
 }
 
 export function stripPromptPolicy(prompt: unknown) {
-  const text = String(prompt || "");
-  const strictPrefix = `${STRICT_PROMPT_PREFIX}\n`;
+  const text = String(prompt || "").replace(/\r\n/g, "\n");
+  const strictPrefix = `${STRICT_PROMPT_HEADER}\n`;
   if (text.startsWith(strictPrefix)) {
-    return text.slice(strictPrefix.length);
-  }
-
-  const marker = "原始 Prompt:\n";
-  const markerIndex = text.indexOf(marker);
-  if (markerIndex >= 0 && text.slice(0, markerIndex).includes("不要改写")) {
-    return text.slice(markerIndex + marker.length);
+    const footerMarker = `\n\n${STRICT_PROMPT_FOOTER}\n`;
+    const footerIndex = text.lastIndexOf(footerMarker);
+    if (footerIndex >= 0) {
+      return text.slice(footerIndex + footerMarker.length);
+    }
   }
 
   return text;
@@ -419,7 +564,7 @@ export function buildPayload(values: Partial<GenerationValues> & Pick<Generation
 
   return {
     model,
-    prompt: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt),
+    prompt: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt, values.strictPromptText),
     n: imageCount,
     size: values.size || DEFAULTS.size,
     quality: values.quality || DEFAULTS.quality,
@@ -441,12 +586,12 @@ export function buildResponsesImagePayload(
   imageCountFromValue(values.n || DEFAULTS.n);
 
   if (!model) {
-    throw new Error("LLM 模型不能为空。");
+    throw new Error("对话模型不能为空。");
   }
 
   return {
     model,
-    input: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt),
+    input: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt, values.strictPromptText),
     tools: [
       {
         type: "image_generation",
@@ -474,7 +619,7 @@ export function buildChatCompletionsImagePayload(
   imageCountFromValue(values.n || DEFAULTS.n);
 
   if (!model) {
-    throw new Error("LLM 模型不能为空。");
+    throw new Error("对话模型不能为空。");
   }
 
   return {
@@ -482,7 +627,7 @@ export function buildChatCompletionsImagePayload(
     messages: [
       {
         role: "user",
-        content: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt),
+        content: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt, values.strictPromptText),
       },
     ],
     tools: [
@@ -497,6 +642,41 @@ export function buildChatCompletionsImagePayload(
     tool_choice: {
       type: "image_generation",
     },
+  };
+}
+
+export function buildEditImagePayload(
+  values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">,
+  images: EditInputImage[],
+): RequestPayload {
+  const prompt = validatePromptAndOutput({
+    prompt: values.prompt,
+    background: values.background || DEFAULTS.background,
+    outputFormat: values.outputFormat || DEFAULTS.outputFormat,
+  });
+  const model = String(values.model || DEFAULTS.model).trim();
+  const requestedCount = imageCountFromValue(values.n || DEFAULTS.n);
+
+  if (!model) {
+    throw new Error("生图模型不能为空。");
+  }
+
+  if (!Array.isArray(images) || !images.length) {
+    throw new Error("请先选择至少一张图片。");
+  }
+
+  if (images.length > MAX_EDIT_INPUT_IMAGES) {
+    throw new Error(`编辑模式最多选择 ${MAX_EDIT_INPUT_IMAGES} 张图片。`);
+  }
+
+  return {
+    model,
+    prompt: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt, values.strictPromptText),
+    n: requestedCount,
+    size: values.size || DEFAULTS.size,
+    quality: values.quality || DEFAULTS.quality,
+    background: values.background || DEFAULTS.background,
+    output_format: values.outputFormat || DEFAULTS.outputFormat,
   };
 }
 
@@ -525,6 +705,15 @@ export function buildChatCompletionsImageRequests(payload: RequestPayload, count
     ...payload,
     messages: payload.messages?.map((message) => ({ ...message })) || [],
     tools: payload.tools?.map((tool) => ({ ...tool })) || [],
+  }));
+}
+
+export function buildEditImageRequests(payload: RequestPayload, count: unknown) {
+  const requestedCount = imageCountFromValue(count);
+
+  return Array.from({ length: requestedCount }, () => ({
+    ...payload,
+    n: 1,
   }));
 }
 
@@ -670,6 +859,7 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
       request.status === "running" || request.status === "queued" ? "页面刷新，请求已中断。" : request.error || "",
     controller: null,
     cancelRequested: false,
+    editImages: [],
   };
 }
 
@@ -956,6 +1146,24 @@ export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
   };
 }
 
+export function prepareEditInputImage(image: GeneratedImage, name: string): EditInputImage | null {
+  const blob = typeof Blob !== "undefined" && image.blob instanceof Blob
+    ? image.blob
+    : image.kind === "base64"
+      ? imageBlobFromDataUrl(image.src, imageFormatFromMimeType(image.mimeType))
+      : null;
+
+  if (!blob) return null;
+
+  const runtimeImage = prepareImageForRuntime({ ...image, blob });
+  return {
+    src: runtimeImage.src,
+    name,
+    mimeType: blob.type || image.mimeType || "image/png",
+    blob,
+  };
+}
+
 function looksLikeBase64Image(value: unknown) {
   const text = String(value || "").trim();
   if (text.startsWith("data:image/")) return true;
@@ -1124,7 +1332,11 @@ export function responseErrorMessage(status: number, body: unknown) {
   return `HTTP ${status} ${detail}`;
 }
 
-export function imageDownloadName(request: Pick<ImageRequestRecord, "payload" | "title" | "method">, index = 0) {
+export function imageDownloadName(
+  request: Pick<ImageRequestRecord, "payload" | "title" | "method"> &
+    Partial<Pick<ImageRequestRecord, "imageCount" | "images">>,
+  index = 0,
+) {
   const format = payloadOutputFormat(request?.payload);
   const title = String(request?.title || "image").replace(/[^\w.-]+/g, "-");
   const prefix =
@@ -1132,6 +1344,10 @@ export function imageDownloadName(request: Pick<ImageRequestRecord, "payload" | 
       ? "image-generation"
       : request?.method === "completions"
         ? "completions"
+      : request?.method === "edit"
+          ? "edit"
         : "generations";
-  return `${prefix}-${title}-${index + 1}.${format}`;
+  const imageCount = request?.images?.length || Number(request?.imageCount || 0);
+  const suffix = imageCount > 1 ? `-${index + 1}` : "";
+  return `${prefix}-${title}${suffix}.${format}`;
 }

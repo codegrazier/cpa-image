@@ -1,8 +1,13 @@
 import {
   cachedRequestRecords,
   DEFAULTS,
+  DEFAULT_MODE_SETTINGS,
+  DEFAULT_SHARED_SETTINGS,
+  LAST_PROMPT_KEY_BY_MODE,
   LAST_PROMPT_KEY,
+  PINNED_PROMPT_HISTORY_KEY_BY_MODE,
   PINNED_PROMPT_HISTORY_KEY,
+  PROMPT_HISTORY_KEY_BY_MODE,
   normalizePromptHistory,
   normalizePinnedPromptHistory,
   prepareImageForDetailCache,
@@ -11,11 +16,17 @@ import {
   REQUEST_DETAIL_DB_NAME,
   REQUEST_DETAIL_DB_VERSION,
   REQUEST_DETAIL_STORE_NAME,
+  REQUEST_RECORDS_STORE_NAME,
   restoreCachedRequest,
   STORAGE_KEY,
-  type AppSettings,
+  type ConsoleMode,
+  type CachedRequestRecord,
+  type ModeSettings,
+  type StoredConsoleSettings,
   type GeneratedImage,
   type ImageRequestRecord,
+  normalizeModeSettings,
+  normalizeSharedSettings,
 } from "@/lib/image-console";
 
 interface RequestDetailEntry {
@@ -30,47 +41,118 @@ interface SaveRequestDetailsOptions {
   prune?: boolean;
 }
 
-interface RequestDetailEntry {
-  id: string;
-  images: GeneratedImage[];
-  response: unknown;
-  savedAt: number;
+let cachedRequestWriteChain: Promise<void> = Promise.resolve();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export function loadSettings(): AppSettings {
+function enqueueCachedRequestWrite<T>(task: () => Promise<T>) {
+  const run = cachedRequestWriteChain.then(task, task);
+  cachedRequestWriteChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function cloneDefaultStoredSettings(): StoredConsoleSettings {
+  return {
+    shared: { ...DEFAULT_SHARED_SETTINGS },
+    modeSettingsByMode: {
+      generate: { ...DEFAULT_MODE_SETTINGS },
+      edit: { ...DEFAULT_MODE_SETTINGS },
+    },
+  };
+}
+
+function normalizeStoredSettings(raw: unknown): StoredConsoleSettings {
+  const defaults = cloneDefaultStoredSettings();
+
+  if (!isRecord(raw)) return defaults;
+
+  const nestedShared = isRecord(raw.shared) ? raw.shared : null;
+  const nestedModeSettings = isRecord(raw.modeSettingsByMode)
+    ? raw.modeSettingsByMode
+    : isRecord(raw.modes)
+      ? raw.modes
+      : null;
+
+  const legacySharedSource = {
+    ...raw,
+    llmModel: raw.llmModel || raw.imageGenerationModel || DEFAULTS.llmModel,
+  };
+
+  const shared = normalizeSharedSettings(nestedShared || legacySharedSource);
+
+  if (!nestedModeSettings) {
+    const legacyModeSettings = normalizeModeSettings(raw as Partial<ModeSettings>);
+    return {
+      shared,
+      modeSettingsByMode: {
+        generate: { ...legacyModeSettings },
+        edit: { ...legacyModeSettings },
+      },
+    };
+  }
+
+  const generateSource = isRecord(nestedModeSettings.generate) ? nestedModeSettings.generate : raw;
+  const editSource = isRecord(nestedModeSettings.edit) ? nestedModeSettings.edit : raw;
+
+  return {
+    shared,
+    modeSettingsByMode: {
+      generate: normalizeModeSettings(generateSource as Partial<ModeSettings>),
+      edit: normalizeModeSettings(editSource as Partial<ModeSettings>),
+    },
+  };
+}
+
+function sortCachedRequestRecords(records: CachedRequestRecord[]) {
+  return [...records].sort((a, b) => {
+    const createdDiff = Number(a.createdAt || 0) - Number(b.createdAt || 0);
+    if (createdDiff) return createdDiff;
+
+    const indexDiff = Number(a.index || 0) - Number(b.index || 0);
+    if (indexDiff) return indexDiff;
+
+    const titleDiff = String(a.title || "").localeCompare(String(b.title || ""));
+    if (titleDiff) return titleDiff;
+
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+}
+
+export function loadSettings(): StoredConsoleSettings {
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return { ...DEFAULTS };
+  if (!stored) return cloneDefaultStoredSettings();
 
   try {
-    const parsed = JSON.parse(stored) as Partial<AppSettings> & { imageGenerationModel?: string };
-    return {
-      ...DEFAULTS,
-      ...parsed,
-      llmModel: parsed.llmModel || parsed.imageGenerationModel || DEFAULTS.llmModel,
-    };
+    return normalizeStoredSettings(JSON.parse(stored));
   } catch {
-    return { ...DEFAULTS };
+    return cloneDefaultStoredSettings();
   }
 }
 
-export function saveSettings(values: AppSettings) {
-  const persisted: Partial<AppSettings> = {
-    baseUrl: values.baseUrl,
-    model: values.model || DEFAULTS.model,
-    llmModel: values.llmModel || DEFAULTS.llmModel,
-    rememberKey: Boolean(values.rememberKey),
-    strictPrompt: Boolean(values.strictPrompt),
-    requestConcurrency: values.requestConcurrency,
-    requestIntervalSeconds: values.requestIntervalSeconds,
-    size: values.size,
-    quality: values.quality,
-    n: values.n,
-    background: values.background,
-    outputFormat: values.outputFormat,
+export function saveSettings(values: StoredConsoleSettings) {
+  const normalized = normalizeStoredSettings(values);
+  const persisted: Record<string, unknown> = {
+    shared: normalized.shared,
+    modeSettingsByMode: normalized.modeSettingsByMode,
+    baseUrl: normalized.shared.baseUrl,
+    model: normalized.shared.model,
+    llmModel: normalized.shared.llmModel,
+    rememberKey: normalized.shared.rememberKey,
+    requestConcurrency: normalized.shared.requestConcurrency,
+    requestIntervalSeconds: normalized.shared.requestIntervalSeconds,
+    strictPromptText: normalized.shared.strictPromptText,
+    size: normalized.modeSettingsByMode.generate.size,
+    quality: normalized.modeSettingsByMode.generate.quality,
+    n: normalized.modeSettingsByMode.generate.n,
+    background: normalized.modeSettingsByMode.generate.background,
+    outputFormat: normalized.modeSettingsByMode.generate.outputFormat,
+    strictPrompt: normalized.modeSettingsByMode.generate.strictPrompt,
   };
 
-  if (values.rememberKey) {
-    persisted.apiKey = values.apiKey;
+  if (normalized.shared.rememberKey) {
+    persisted.apiKey = normalized.shared.apiKey;
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
@@ -81,56 +163,74 @@ export function resetSettings() {
 }
 
 export function loadLastPrompt() {
+  return loadLastPromptForMode("generate");
+}
+
+export function loadLastPromptForMode(mode: ConsoleMode = "generate") {
   try {
-    return localStorage.getItem(LAST_PROMPT_KEY) || "";
+    const key = LAST_PROMPT_KEY_BY_MODE[mode] || LAST_PROMPT_KEY;
+    return localStorage.getItem(key) || "";
   } catch {
     return "";
   }
 }
 
-export function saveLastPrompt(prompt: string) {
+export function saveLastPrompt(prompt: string, mode: ConsoleMode = "generate") {
   try {
-    localStorage.setItem(LAST_PROMPT_KEY, String(prompt || ""));
+    const key = LAST_PROMPT_KEY_BY_MODE[mode] || LAST_PROMPT_KEY;
+    localStorage.setItem(key, String(prompt || ""));
   } catch {
     // 忽略草稿保存失败，避免影响用户继续编辑。
   }
 }
 
 export function loadPromptHistory() {
+  return loadPromptHistoryForMode("generate");
+}
+
+export function loadPromptHistoryForMode(mode: ConsoleMode = "generate") {
   try {
-    const stored = localStorage.getItem(PROMPT_HISTORY_KEY);
+    const key = PROMPT_HISTORY_KEY_BY_MODE[mode] || PROMPT_HISTORY_KEY;
+    const stored = localStorage.getItem(key);
     return normalizePromptHistory(stored ? JSON.parse(stored) : []);
   } catch {
     return [];
   }
 }
 
-export function savePromptHistory(history: string[]) {
+export function savePromptHistory(history: string[], mode: ConsoleMode = "generate") {
   try {
-    localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(normalizePromptHistory(history)));
+    const key = PROMPT_HISTORY_KEY_BY_MODE[mode] || PROMPT_HISTORY_KEY;
+    localStorage.setItem(key, JSON.stringify(normalizePromptHistory(history)));
   } catch {
     // 历史 Prompt 只是辅助信息，写入失败时不影响生成。
   }
 }
 
 export function loadPinnedPromptHistory() {
+  return loadPinnedPromptHistoryForMode("generate");
+}
+
+export function loadPinnedPromptHistoryForMode(mode: ConsoleMode = "generate") {
   try {
-    const stored = localStorage.getItem(PINNED_PROMPT_HISTORY_KEY);
+    const key = PINNED_PROMPT_HISTORY_KEY_BY_MODE[mode] || PINNED_PROMPT_HISTORY_KEY;
+    const stored = localStorage.getItem(key);
     return normalizePinnedPromptHistory(stored ? JSON.parse(stored) : []);
   } catch {
     return [];
   }
 }
 
-export function savePinnedPromptHistory(history: string[]) {
+export function savePinnedPromptHistory(history: string[], mode: ConsoleMode = "generate") {
   try {
-    localStorage.setItem(PINNED_PROMPT_HISTORY_KEY, JSON.stringify(normalizePinnedPromptHistory(history)));
+    const key = PINNED_PROMPT_HISTORY_KEY_BY_MODE[mode] || PINNED_PROMPT_HISTORY_KEY;
+    localStorage.setItem(key, JSON.stringify(normalizePinnedPromptHistory(history)));
   } catch {
     // 置顶 Prompt 只是辅助信息，写入失败时不影响生成。
   }
 }
 
-function openRequestDetailDb(): Promise<IDBDatabase | null> {
+function openConsoleDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
 
   return new Promise((resolve, reject) => {
@@ -138,6 +238,9 @@ function openRequestDetailDb(): Promise<IDBDatabase | null> {
 
     request.onupgradeneeded = () => {
       const db = request.result;
+      if (!db.objectStoreNames.contains(REQUEST_RECORDS_STORE_NAME)) {
+        db.createObjectStore(REQUEST_RECORDS_STORE_NAME, { keyPath: "id" });
+      }
       if (!db.objectStoreNames.contains(REQUEST_DETAIL_STORE_NAME)) {
         db.createObjectStore(REQUEST_DETAIL_STORE_NAME, { keyPath: "id" });
       }
@@ -146,6 +249,52 @@ function openRequestDetailDb(): Promise<IDBDatabase | null> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error("IndexedDB 打开失败。"));
   });
+}
+
+async function readStoreValues<T>(storeName: string) {
+  let db: IDBDatabase | null = null;
+
+  try {
+    db = await openConsoleDb();
+    if (!db) return null;
+
+    const transaction = db.transaction(storeName, "readonly");
+    const done = transactionDone(transaction);
+    const store = transaction.objectStore(storeName);
+    const values = await requestToPromise<T[]>(store.getAll());
+
+    await done;
+    return Array.isArray(values) ? values : [];
+  } catch {
+    return null;
+  } finally {
+    closeDb(db);
+  }
+}
+
+async function replaceStoreValues<T extends { id: string }>(storeName: string, values: T[]) {
+  let db: IDBDatabase | null = null;
+
+  try {
+    db = await openConsoleDb();
+    if (!db) return false;
+
+    const transaction = db.transaction(storeName, "readwrite");
+    const done = transactionDone(transaction);
+    const store = transaction.objectStore(storeName);
+
+    await requestToPromise(store.clear());
+    for (const value of values) {
+      store.put(value);
+    }
+
+    await done;
+    return true;
+  } catch {
+    return false;
+  } finally {
+    closeDb(db);
+  }
 }
 
 function requestToPromise<T = unknown>(request: IDBRequest<T>): Promise<T> {
@@ -203,7 +352,7 @@ export async function saveRequestDetails(records: ImageRequestRecord[], options:
   let db: IDBDatabase | null = null;
 
   try {
-    db = await openRequestDetailDb();
+    db = await openConsoleDb();
     if (!db) return;
 
     const prune = options.prune ?? true;
@@ -238,7 +387,7 @@ export async function loadRequestDetails(id: string) {
   let db: IDBDatabase | null = null;
 
   try {
-    db = await openRequestDetailDb();
+    db = await openConsoleDb();
     if (!db) return null;
 
     const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readonly");
@@ -268,7 +417,7 @@ export async function deleteRequestDetails(ids: string[]) {
   let db: IDBDatabase | null = null;
 
   try {
-    db = await openRequestDetailDb();
+    db = await openConsoleDb();
     if (!db) return;
 
     const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
@@ -291,7 +440,7 @@ export async function clearRequestDetails() {
   let db: IDBDatabase | null = null;
 
   try {
-    db = await openRequestDetailDb();
+    db = await openConsoleDb();
     if (!db) return;
 
     const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
@@ -305,35 +454,65 @@ export async function clearRequestDetails() {
   }
 }
 
+async function persistCachedRequestRecords(records: CachedRequestRecord[], fallbackToLocalStorage = true) {
+  const normalized = sortCachedRequestRecords(records);
+  const persisted = await enqueueCachedRequestWrite(() => replaceStoreValues(REQUEST_RECORDS_STORE_NAME, normalized));
+
+  if (persisted) {
+    try {
+      localStorage.removeItem(REQUEST_CACHE_KEY);
+    } catch {
+      // Ignore cleanup failures.
+    }
+    return true;
+  }
+
+  if (fallbackToLocalStorage) {
+    try {
+      localStorage.setItem(REQUEST_CACHE_KEY, JSON.stringify(normalized));
+      return true;
+    } catch {
+      // Ignore quota failures.
+    }
+  }
+
+  return false;
+}
+
 export async function loadCachedRequests() {
+  const storedRecords = await readStoreValues<CachedRequestRecord>(REQUEST_RECORDS_STORE_NAME);
+  if (storedRecords?.length) {
+    try {
+      localStorage.removeItem(REQUEST_CACHE_KEY);
+    } catch {
+      // Ignore cleanup failures.
+    }
+    return sortCachedRequestRecords(storedRecords).map((record) => restoreCachedRequest(record));
+  }
+
   const stored = localStorage.getItem(REQUEST_CACHE_KEY);
   if (!stored) return [];
 
   try {
     const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(restoreCachedRequest);
+    await persistCachedRequestRecords(parsed as CachedRequestRecord[], false);
+    return sortCachedRequestRecords(parsed as CachedRequestRecord[]).map((record) => restoreCachedRequest(record));
   } catch {
     return [];
   }
 }
 
 export function saveCachedRequests(records: ImageRequestRecord[]) {
-  const cached = cachedRequestRecords(records);
-  const serialized = JSON.stringify(cached);
-
-  try {
-    localStorage.setItem(REQUEST_CACHE_KEY, serialized);
-  } catch {
-    try {
-      localStorage.removeItem(REQUEST_CACHE_KEY);
-    } catch {
-      // Ignore quota failures.
-    }
-  }
+  void persistCachedRequestRecords(cachedRequestRecords(records));
 }
 
 export function clearCachedRequests() {
-  localStorage.removeItem(REQUEST_CACHE_KEY);
+  void enqueueCachedRequestWrite(() => replaceStoreValues(REQUEST_RECORDS_STORE_NAME, []));
+  try {
+    localStorage.removeItem(REQUEST_CACHE_KEY);
+  } catch {
+    // Ignore cleanup failures.
+  }
   void clearRequestDetails();
 }

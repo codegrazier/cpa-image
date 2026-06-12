@@ -5,6 +5,8 @@ import {
   applyPromptPolicy,
   buildChatCompletionsImagePayload,
   buildChatCompletionsImageRequests,
+  buildEditImagePayload,
+  buildEditImageRequests,
   buildGenerationRequests,
   buildPayload,
   buildResponsesImagePayload,
@@ -22,6 +24,7 @@ import {
   imageDownloadName,
   normalizeChatCompletionsEndpoint,
   normalizeImageEndpoint,
+  normalizeImageEditsEndpoint,
   normalizePromptHistory,
   normalizePinnedPromptHistory,
   normalizeModelsEndpoint,
@@ -42,6 +45,8 @@ import {
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
   sortedRequestRecordsForFilter,
+  STRICT_PROMPT_FOOTER,
+  STRICT_PROMPT_HEADER,
   stripPromptPolicy,
   unpinPromptHistory,
 } from "@/lib/image-console";
@@ -59,6 +64,11 @@ describe("image console logic", () => {
     expect(normalizeImageEndpoint("https://proxy.example.com/v1/images/generations")).toBe(
       "https://proxy.example.com/v1/images/generations",
     );
+  });
+
+  test("normalizes base URLs into image edit endpoints", () => {
+    expect(normalizeImageEditsEndpoint("http://localhost:8317")).toBe("http://localhost:8317/v1/images/edits");
+    expect(normalizeImageEditsEndpoint("http://localhost:8317/v1")).toBe("http://localhost:8317/v1/images/edits");
   });
 
   test("normalizes base URLs into models endpoints", () => {
@@ -120,6 +130,49 @@ describe("image console logic", () => {
 
     expect(payload.model).toBe("gpt-5.6");
     expect(payload.tools?.[0].type).toBe("image_generation");
+  });
+
+  test("builds edit payload with uploaded images", () => {
+    const file = new File(["image-bytes"], "input.png", { type: "image/png" });
+    const payload = buildEditImagePayload(
+      {
+        model: "gpt-image-3",
+        prompt: "glass jellyfish",
+        strictPrompt: false,
+        n: 2,
+        size: "1024x1536",
+        quality: "high",
+        background: "opaque",
+        outputFormat: "webp",
+      },
+      [{ src: "blob:preview", name: "input.png", mimeType: "image/png", file }],
+    );
+
+    expect(payload.model).toBe("gpt-image-3");
+    expect(payload.prompt).toBe("glass jellyfish");
+    expect(payload.images).toBeUndefined();
+    expect(payload.n).toBe(2);
+    expect(payload.output_format).toBe("webp");
+  });
+
+  test("rejects edit payloads with more than five input images", () => {
+    const file = new File(["image-bytes"], "input.png", { type: "image/png" });
+
+    expect(() =>
+      buildEditImagePayload(
+        {
+          prompt: "glass jellyfish",
+          strictPrompt: false,
+          n: 1,
+        },
+        Array.from({ length: 6 }, (_, index) => ({
+          src: `blob:preview-${index}`,
+          name: `input-${index + 1}.png`,
+          mimeType: "image/png",
+          file,
+        })),
+      ),
+    ).toThrow(/最多选择 5 张图片/);
   });
 
   test("builds responses image_generation payload with gpt-5.5", () => {
@@ -197,6 +250,15 @@ describe("image console logic", () => {
     expect(payload.prompt).toMatch(/必须逐字保持原始 Prompt/);
     expect(payload.prompt).not.toMatch(/除非安全策略明确要求/);
     expect(payload.prompt).toMatch(/原始 Prompt:\nglass jellyfish/);
+  });
+
+  test("uses a custom strict prompt body between fixed header and footer", () => {
+    const wrappedPrompt = applyPromptPolicy("glass jellyfish", true, "第一行\n第二行");
+
+    expect(wrappedPrompt).toBe(
+      `${STRICT_PROMPT_HEADER}\n第一行\n第二行\n\n${STRICT_PROMPT_FOOTER}\nglass jellyfish`,
+    );
+    expect(stripPromptPolicy(wrappedPrompt)).toBe("glass jellyfish");
   });
 
   test("can keep raw prompt when strict prompt policy is disabled", () => {
@@ -295,6 +357,26 @@ describe("image console logic", () => {
     expect(requests[0].tools?.[0]).not.toBe(requests[1].tools?.[0]);
   });
 
+  test("splits edit image requests by count", () => {
+    const payload = buildEditImagePayload(
+      {
+        prompt: "glass jellyfish",
+        strictPrompt: false,
+        n: 3,
+        size: "1024x1024",
+        outputFormat: "png",
+      },
+      [{ src: "blob:preview", name: "input.png", mimeType: "image/png", file: new File(["x"], "input.png") }],
+    );
+
+    const requests = buildEditImageRequests(payload, 3);
+
+    expect(requests).toHaveLength(3);
+    expect(requests[0].model).toBe("gpt-image-2");
+    expect(requests[0].n).toBe(1);
+    expect(requests[0]).not.toBe(requests[1]);
+  });
+
   test("creates independent request records", () => {
     const records = createRequestRecords(
       [
@@ -377,6 +459,7 @@ describe("image console logic", () => {
     expect(generationMethodDisplayName("gpt-image-2")).toBe("generations");
     expect(generationMethodDisplayName("image_generation")).toBe("responses");
     expect(generationMethodDisplayName("completions")).toBe("completions");
+    expect(generationMethodDisplayName("edit")).toBe("edit");
     expect(generationMethodDisplayName("")).toBe("generations");
   });
 
@@ -386,8 +469,20 @@ describe("image console logic", () => {
         method: "gpt-image-2",
         title: "0617-1801-1",
         payload: { model: "gpt-image-2" },
+        imageCount: 1,
       }),
-    ).toBe("generations-0617-1801-1-1.png");
+    ).toBe("generations-0617-1801-1.png");
+  });
+
+  test("uses edit as the download filename prefix for edit requests", () => {
+    expect(
+      imageDownloadName({
+        method: "edit",
+        title: "0617-1801-1",
+        payload: { model: "gpt-image-2" },
+        imageCount: 1,
+      }),
+    ).toBe("edit-0617-1801-1.png");
   });
 
   test("deduplicates prompt history and keeps the newest 20 prompts", () => {

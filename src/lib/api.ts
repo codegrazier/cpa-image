@@ -1,9 +1,12 @@
 import { normalizeModelsEndpoint, responseBodyHasError, responseErrorMessage } from "@/lib/image-console";
 
-export function authHeaders(apiKey: string) {
+export function authHeaders(apiKey: string, contentType: string | null = "application/json") {
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
   };
+
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  }
 
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
@@ -28,6 +31,64 @@ export async function postImageGeneration(endpoint: string, apiKey: string, payl
     method: "POST",
     headers: authHeaders(apiKey),
     body: JSON.stringify(payload),
+    signal,
+  });
+
+  const body = await parseResponseBody(response);
+  if (!response.ok || responseBodyHasError(body)) {
+    const error = new Error(responseErrorMessage(response.status, body)) as Error & {
+      responseBody?: unknown;
+      status?: number;
+    };
+    error.responseBody = body;
+    error.status = response.status;
+    throw error;
+  }
+
+  return body;
+}
+
+export async function postImageEdit(
+  endpoint: string,
+  apiKey: string,
+  payload: Record<string, unknown>,
+  images: Array<{ file?: File; blob?: Blob; name: string; mimeType?: string }>,
+  signal: AbortSignal,
+) {
+  const formData = new FormData();
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (value == null) continue;
+    if (key === "images") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item == null) continue;
+        formData.append(key, typeof item === "string" ? item : JSON.stringify(item));
+      }
+      continue;
+    }
+
+    if (typeof value === "object") {
+      formData.append(key, JSON.stringify(value));
+      continue;
+    }
+
+    formData.append(key, String(value));
+  }
+
+  for (const image of images) {
+    const file = image.file || image.blob;
+    if (!file) {
+      throw new Error("编辑请求缺少可上传的图片。");
+    }
+
+    formData.append("image[]", file, image.name);
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: authHeaders(apiKey, null),
+    body: formData,
     signal,
   });
 
