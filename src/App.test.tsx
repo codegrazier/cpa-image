@@ -91,6 +91,7 @@ function setNavigatorLanguage(language: string) {
 beforeEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
+  window.history.replaceState({}, "", "/");
   setNavigatorLanguage("zh-CN");
 });
 
@@ -125,7 +126,20 @@ describe("App", () => {
 
     expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Switch to 中文" })).toBeInTheDocument();
-    expect(document.documentElement.lang).toBe("en");
+    expect(document.documentElement.lang).toBe("en-US");
+    expect(document.title).toBe("CPA Image | OpenAI Image Generation and Editing Console");
+    expect(document.querySelector('link[rel="canonical"]')?.getAttribute("href")).toContain("?lang=en-US");
+    expect(window.location.search).toBe("?lang=en-US");
+  });
+
+  test("prefers the lang query parameter over saved language", () => {
+    localStorage.setItem("CPA-Image-language", "zh");
+    window.history.replaceState({}, "", "/?lang=en-US");
+
+    renderApp();
+
+    expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en-US");
   });
 
   test("hydrates saved settings into the settings dialog", async () => {
@@ -212,6 +226,7 @@ describe("App", () => {
     expect(bodyJson.prompt).toContain("Keep only the subject and lighting");
 
     cleanup();
+    window.history.replaceState({}, "", "/");
     localStorage.setItem("CPA-Image-language", "zh");
     renderApp();
     await user.click(screen.getByRole("button", { name: "编辑原始 Prompt 文案" }));

@@ -13,6 +13,144 @@ import {
 export type Language = "zh" | "en";
 
 const LANGUAGE_STORAGE_KEY = "CPA-Image-language";
+const LANGUAGE_QUERY_KEY = "lang";
+const LANGUAGE_LOCALES: Record<Language, "zh-CN" | "en-US"> = {
+  zh: "zh-CN",
+  en: "en-US",
+};
+const LANGUAGE_FROM_LOCALE: Record<string, Language> = {
+  zh: "zh",
+  "zh-cn": "zh",
+  en: "en",
+  "en-us": "en",
+};
+
+const SEO_COPY: Record<
+  Language,
+  {
+    title: string;
+    description: string;
+    ogLocale: string;
+    ogLocaleAlternate: string;
+    imageAlt: string;
+  }
+> = {
+  zh: {
+    title: "CPA Image | OpenAI 图像生成与编辑控制台",
+    description: "CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持生图、编辑、历史请求、Prompt 复用和响应 JSON。",
+    ogLocale: "zh_CN",
+    ogLocaleAlternate: "en_US",
+    imageAlt: "CPA Image OpenAI 图像生成与编辑控制台",
+  },
+  en: {
+    title: "CPA Image | OpenAI Image Generation and Editing Console",
+    description: "CPA Image is an OpenAI-compatible image generation and editing console. It supports image generation, editing, request history, prompt reuse, and JSON responses.",
+    ogLocale: "en_US",
+    ogLocaleAlternate: "zh_CN",
+    imageAlt: "CPA Image OpenAI image generation and editing console",
+  },
+};
+
+function languageFromValue(value: string | null | undefined): Language | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  return LANGUAGE_FROM_LOCALE[normalized] || null;
+}
+
+function languageFromBrowser(): Language {
+  if (typeof navigator === "undefined") return "zh";
+
+  const candidates = [navigator.language, ...(Array.isArray(navigator.languages) ? navigator.languages : [])]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (candidates.some((value) => value.startsWith("zh"))) return "zh";
+  if (candidates.some((value) => value.startsWith("en"))) return "en";
+  return "en";
+}
+
+function languageFromLocation(search: string): Language | null {
+  if (!search) return null;
+  const params = new URLSearchParams(search);
+  return languageFromValue(params.get(LANGUAGE_QUERY_KEY));
+}
+
+function initialLanguage(): Language {
+  if (typeof window === "undefined") return "zh";
+
+  return (
+    languageFromLocation(window.location.search) ||
+    languageFromValue(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)) ||
+    languageFromBrowser()
+  );
+}
+
+function currentLanguageUrl(language: Language) {
+  const url = new URL(window.location.href);
+  url.searchParams.set(LANGUAGE_QUERY_KEY, LANGUAGE_LOCALES[language]);
+  return url;
+}
+
+function syncMeta(nameOrProperty: "name" | "property", key: string, content: string) {
+  if (typeof document === "undefined") return;
+  const selector = `meta[${nameOrProperty}="${key}"]`;
+  let element = document.head.querySelector(selector) as HTMLMetaElement | null;
+  if (!element) {
+    element = document.createElement("meta");
+    element.setAttribute(nameOrProperty, key);
+    document.head.appendChild(element);
+  }
+  element.content = content;
+}
+
+function syncLink(rel: string, href: string, hreflang?: string) {
+  if (typeof document === "undefined") return;
+  const selector = hreflang ? `link[rel="${rel}"][hreflang="${hreflang}"]` : `link[rel="${rel}"]`;
+  let element = document.head.querySelector(selector) as HTMLLinkElement | null;
+  if (!element) {
+    element = document.createElement("link");
+    element.rel = rel;
+    if (hreflang) element.hreflang = hreflang;
+    document.head.appendChild(element);
+  }
+  element.href = href;
+}
+
+function syncDocumentLanguage(language: Language) {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+
+  const seo = SEO_COPY[language];
+  const locale = LANGUAGE_LOCALES[language];
+  const url = currentLanguageUrl(language);
+  const originPath = `${window.location.origin}${window.location.pathname}`;
+  const alternateLanguage = language === "zh" ? "en" : "zh";
+  const alternateLocale = LANGUAGE_LOCALES[alternateLanguage];
+
+  document.documentElement.lang = locale;
+  document.title = seo.title;
+  syncMeta("name", "description", seo.description);
+  syncMeta("property", "og:type", "website");
+  syncMeta("property", "og:site_name", "CPA Image");
+  syncMeta("property", "og:locale", seo.ogLocale);
+  syncMeta("property", "og:locale:alternate", seo.ogLocaleAlternate);
+  syncMeta("property", "og:title", seo.title);
+  syncMeta("property", "og:description", seo.description);
+  syncMeta("property", "og:url", url.toString());
+  syncMeta("property", "og:image", `${window.location.origin}/og-image.svg`);
+  syncMeta("property", "og:image:alt", seo.imageAlt);
+  syncMeta("name", "twitter:card", "summary_large_image");
+  syncMeta("name", "twitter:title", seo.title);
+  syncMeta("name", "twitter:description", seo.description);
+  syncMeta("name", "twitter:image", `${window.location.origin}/og-image.svg`);
+  syncMeta("name", "twitter:image:alt", seo.imageAlt);
+  syncLink("canonical", url.toString());
+  syncLink("alternate", `${originPath}?lang=${LANGUAGE_LOCALES.zh}`, LANGUAGE_LOCALES.zh);
+  syncLink("alternate", `${originPath}?lang=${LANGUAGE_LOCALES.en}`, LANGUAGE_LOCALES.en);
+  syncLink("alternate", originPath, "x-default");
+
+  if (window.location.search !== url.search) {
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+}
 
 type Copy = {
   appName: string;
@@ -490,34 +628,26 @@ const I18N_CONTEXT = createContext<{
   copy: Copy;
 } | null>(null);
 
-function preferredLanguageFromBrowser(): Language {
-  if (typeof navigator === "undefined") return "zh";
-
-  const candidates = [navigator.language, ...(Array.isArray(navigator.languages) ? navigator.languages : [])]
-    .map((value) => String(value || "").trim().toLowerCase())
-    .filter(Boolean);
-
-  if (candidates.some((value) => value.startsWith("zh"))) return "zh";
-  if (candidates.some((value) => value.startsWith("en"))) return "en";
-  return "en";
-}
-
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguage] = useState<Language>(() => {
-    if (typeof window === "undefined") return "zh";
-    const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (saved === "en" || saved === "zh") return saved;
-    return preferredLanguageFromBrowser();
-  });
+  const [language, setLanguage] = useState<Language>(() => initialLanguage());
 
   useEffect(() => {
-    if (typeof document !== "undefined") {
-      document.documentElement.lang = language;
-    }
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     }
+    syncDocumentLanguage(language);
   }, [language]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncFromLocation = () => {
+      setLanguage(initialLanguage());
+    };
+
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
 
   const value = useMemo(
     () => ({
