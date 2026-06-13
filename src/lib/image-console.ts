@@ -1008,8 +1008,21 @@ export function requestFilterCounts(records: ImageRequestRecord[] = []) {
   ) as Record<RequestFilter, number>;
 }
 
-function formatSeconds(milliseconds: number) {
-  return `${(Math.max(0, milliseconds) / 1000).toFixed(1)}s`;
+function formatDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, milliseconds) / 1000;
+  if (totalSeconds < 60) {
+    return `${totalSeconds.toFixed(1)}s`;
+  }
+
+  let minutes = Math.floor(totalSeconds / 60);
+  let seconds = Number((totalSeconds - minutes * 60).toFixed(1));
+
+  if (seconds >= 60) {
+    minutes += 1;
+    seconds = 0;
+  }
+
+  return `${minutes}m${seconds.toFixed(1)}s`;
 }
 
 type TimingLanguage = "zh" | "en";
@@ -1040,7 +1053,7 @@ export function formatRequestTiming(
 ) {
   const copy = timingCopy(language);
   const waitEnd = request.startedAt ?? request.endedAt ?? now;
-  const waitText = `${copy.waiting} ${formatSeconds(waitEnd - request.createdAt)}`;
+  const waitText = `${copy.waiting} ${formatDuration(waitEnd - request.createdAt)}`;
 
   if (request.status === "queued") {
     return waitText;
@@ -1049,7 +1062,7 @@ export function formatRequestTiming(
   const runStart = request.startedAt ?? request.createdAt;
   const runEnd = request.endedAt ?? now;
   const runLabel = request.status === "running" ? copy.running : copy.done;
-  return `${waitText} · ${runLabel} ${formatSeconds(runEnd - runStart)}`;
+  return `${waitText} · ${runLabel} ${formatDuration(runEnd - runStart)}`;
 }
 
 export function formatCompletionTime(completedAt: unknown, language: TimingLanguage = "zh") {

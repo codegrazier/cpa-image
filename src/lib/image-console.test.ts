@@ -691,6 +691,18 @@ describe("image console logic", () => {
         {
           status: "done",
           createdAt: 1000,
+          startedAt: 1000,
+          endedAt: 66500,
+        },
+        70000,
+      ),
+    ).toBe("等待 0.0s · 用时 1m5.5s");
+
+    expect(
+      formatRequestTiming(
+        {
+          status: "done",
+          createdAt: 1000,
           startedAt: 2200,
           endedAt: 5200,
         },
@@ -698,6 +710,19 @@ describe("image console logic", () => {
         "en",
       ),
     ).toBe("Waiting 1.2s · Duration 3.0s");
+
+    expect(
+      formatRequestTiming(
+        {
+          status: "done",
+          createdAt: 1000,
+          startedAt: 1000,
+          endedAt: 66500,
+        },
+        70000,
+        "en",
+      ),
+    ).toBe("Waiting 0.0s · Duration 1m5.5s");
   });
 
   test("formats completion clock time", () => {
