@@ -435,7 +435,7 @@ export function useImageConsole() {
     return () => {
       revokeObjectUrls(editImagesRef.current.map((image) => image.src).filter((src) => src.startsWith("blob:")));
     };
-  }, [copy]);
+  }, []);
 
   const clearQueueTimer = useCallback(() => {
     if (queueTimerRef.current == null) return;
@@ -475,7 +475,7 @@ export function useImageConsole() {
     return () => {
       cancelled = true;
     };
-  }, [language]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -644,7 +644,7 @@ export function useImageConsole() {
       }
       revokeObjectUrls(collectObjectUrls(requestRecordsRef.current));
     };
-  }, [clearQueueTimer, copy]);
+  }, [clearQueueTimer]);
 
   const runRequest = useCallback(
     async (requestId: string) => {

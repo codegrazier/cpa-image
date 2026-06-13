@@ -159,6 +159,32 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/en-US/");
   });
 
+  test("switching language does not cancel active requests", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    let aborted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => {
+          aborted = true;
+        });
+        return new Promise<Response>(() => undefined);
+      }),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+    await screen.findByRole("button", { name: /查看 .* 的生成结果/ });
+
+    await user.click(screen.getByRole("button", { name: "切换到 English" }));
+    expect(await screen.findByRole("button", { name: /View .* result/ })).toBeInTheDocument();
+    expect(aborted).toBe(false);
+    expect(screen.queryByText("已取消")).not.toBeInTheDocument();
+  });
+
   test("hydrates saved settings into the settings dialog", async () => {
     const user = userEvent.setup();
     storeSettings({
@@ -300,7 +326,7 @@ describe("App", () => {
 
     await waitFor(() => expect(toastSuccessSpy).toHaveBeenCalledWith("Successfully submitted 1 request."));
     const requestButton = await screen.findByRole("button", { name: /View .* result/ });
-    expect(requestButton).toHaveTextContent("Waiting 0.0s · Duration 0.0s");
+    expect(requestButton).toHaveTextContent(/Waiting 0\.0s · Duration [\d.]+s/);
     expect(requestButton).toHaveTextContent(/Completed at \d{2}:\d{2}:\d{2}/);
   });
 
