@@ -77,9 +77,21 @@ function storeSettings(settings: Partial<AppSettings>) {
   );
 }
 
+function setNavigatorLanguage(language: string) {
+  Object.defineProperty(window.navigator, "language", {
+    configurable: true,
+    value: language,
+  });
+  Object.defineProperty(window.navigator, "languages", {
+    configurable: true,
+    value: [language],
+  });
+}
+
 beforeEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
+  setNavigatorLanguage("zh-CN");
 });
 
 describe("App", () => {
@@ -104,6 +116,16 @@ describe("App", () => {
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/responses/)).toBeInTheDocument();
     expect(screen.getByText(/completions \(gpt-5.5\)/)).toBeInTheDocument();
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/chat\/completions/)).toBeInTheDocument();
+  });
+
+  test("uses browser language on first visit when no saved language exists", () => {
+    setNavigatorLanguage("en-US");
+
+    renderApp();
+
+    expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Switch to 中文" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en");
   });
 
   test("hydrates saved settings into the settings dialog", async () => {

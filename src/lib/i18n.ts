@@ -490,11 +490,24 @@ const I18N_CONTEXT = createContext<{
   copy: Copy;
 } | null>(null);
 
+function preferredLanguageFromBrowser(): Language {
+  if (typeof navigator === "undefined") return "zh";
+
+  const candidates = [navigator.language, ...(Array.isArray(navigator.languages) ? navigator.languages : [])]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (candidates.some((value) => value.startsWith("zh"))) return "zh";
+  if (candidates.some((value) => value.startsWith("en"))) return "en";
+  return "en";
+}
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<Language>(() => {
     if (typeof window === "undefined") return "zh";
     const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return saved === "en" ? "en" : "zh";
+    if (saved === "en" || saved === "zh") return saved;
+    return preferredLanguageFromBrowser();
   });
 
   useEffect(() => {
