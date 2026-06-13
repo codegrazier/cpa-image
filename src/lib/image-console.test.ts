@@ -389,8 +389,8 @@ describe("image console logic", () => {
     );
 
     expect(records).toHaveLength(2);
-    expect(records[0].title).toBe("0617-1801-1");
-    expect(records[1].title).toBe("0617-1801-2");
+    expect(records[0].title).toBe("260617-1801-1");
+    expect(records[1].title).toBe("260617-1801-2");
     expect(records[0].status).toBe("queued");
     expect(records[0].index).toBe(1);
     expect(records[1].index).toBe(2);
@@ -398,7 +398,7 @@ describe("image console logic", () => {
   });
 
   test("continues request title indexes for repeated requests in the same minute", () => {
-    const existingRecords = [{ title: "0617-1801-1" }, { title: "0617-1801-2" }, { title: "0617-1800-9" }];
+    const existingRecords = [{ title: "260617-1801-1" }, { title: "260617-1801-2" }, { title: "260617-1800-9" }];
 
     const records = createRequestRecords(
       [
@@ -411,8 +411,8 @@ describe("image console logic", () => {
       existingRecords,
     );
 
-    expect(records[0].title).toBe("0617-1801-3");
-    expect(records[1].title).toBe("0617-1801-4");
+    expect(records[0].title).toBe("260617-1801-3");
+    expect(records[1].title).toBe("260617-1801-4");
     expect(records[0].index).toBe(3);
     expect(records[1].index).toBe(4);
   });
@@ -467,22 +467,22 @@ describe("image console logic", () => {
     expect(
       imageDownloadName({
         method: "gpt-image-2",
-        title: "0617-1801-1",
+        title: "260617-1801-1",
         payload: { model: "gpt-image-2" },
         imageCount: 1,
       }),
-    ).toBe("generations-0617-1801-1.png");
+    ).toBe("generations-260617-1801-1.png");
   });
 
   test("uses edit as the download filename prefix for edit requests", () => {
     expect(
       imageDownloadName({
         method: "edit",
-        title: "0617-1801-1",
+        title: "260617-1801-1",
         payload: { model: "gpt-image-2" },
         imageCount: 1,
       }),
-    ).toBe("edit-0617-1801-1.png");
+    ).toBe("edit-260617-1801-1.png");
   });
 
   test("deduplicates prompt history and keeps the newest 100 prompts", () => {
@@ -679,7 +679,7 @@ describe("image console logic", () => {
   test("restores interrupted cached requests as canceled", () => {
     const restored = restoreCachedRequest({
       id: "request-1",
-      title: "0617-1801-1",
+      title: "260617-1801-1",
       index: 1,
       total: 1,
       endpoint: "http://localhost:8317/v1/images/generations",
