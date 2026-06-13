@@ -1187,7 +1187,7 @@ function SettingsDialog(
               type="password"
               spellCheck={false}
               autoComplete="off"
-              placeholder="CLIProxyAPI api-key"
+              placeholder="api-key"
               value={settings.apiKey}
               onChange={(event) => updateSettings("apiKey", event.target.value)}
             />

@@ -434,7 +434,7 @@ const COPY: Record<Language, Copy> = {
     },
     settings: {
       title: "连接",
-      description: "配置 CLIProxyAPI 的 OpenAI 兼容地址和代理 API Key。",
+      description: "配置 OpenAI 兼容地址和 API Key。",
       apiUrl: "API URL",
       apiKey: "API Key",
       rememberKey: "在本浏览器记住 API Key",
@@ -599,7 +599,7 @@ const COPY: Record<Language, Copy> = {
     },
     settings: {
       title: "Connection",
-      description: "Configure the OpenAI-compatible CLIProxyAPI base URL and proxy API key.",
+      description: "Configure the OpenAI-compatible base URL and API key.",
       apiUrl: "API URL",
       apiKey: "API key",
       rememberKey: "Remember API key in this browser",
