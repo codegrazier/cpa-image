@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="CPA Image">
-  <rect width="64" height="64" rx="16" fill="#0f766e" />
+  <rect width="64" height="64" rx="16" fill="#111111" />
   <rect x="14" y="14" width="36" height="36" rx="8" stroke="#ffffff" stroke-width="5" />
   <circle cx="25" cy="25" r="4.5" fill="#ffffff" />
   <path d="M17 48L26.2 38.2L31.7 43.7L38.7 34.8L47 44.2V48H17Z" fill="#ffffff" />

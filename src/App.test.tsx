@@ -543,9 +543,9 @@ describe("App", () => {
     expect(completedPanel).not.toBeNull();
     expect(
       [...(completedPanel as HTMLElement).querySelectorAll("button,a")]
-        .map((element) => (element.textContent || "").trim())
-        .filter((text) => ["复用 Prompt", "响应 JSON", "下载"].includes(text)),
-    ).toEqual(["复用 Prompt", "响应 JSON", "下载"]);
+        .map((element) => element.getAttribute("aria-label") || (element.textContent || "").trim())
+        .filter((text) => ["下载", "响应 JSON", "复用 Prompt"].includes(text)),
+    ).toEqual(["下载", "响应 JSON", "复用 Prompt"]);
 
     const reusePromptButton = screen.getByRole("button", { name: /复用 Prompt/ });
     await user.hover(reusePromptButton);
@@ -667,6 +667,22 @@ describe("App", () => {
     expect(within(responseTooltip).getByText("glass jellyfish, soft rim light")).toBeInTheDocument();
   });
 
+  test("keeps response JSON available for failed requests", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    const responseJsonButton = await screen.findByRole("button", { name: /响应 JSON/ });
+    await user.click(responseJsonButton);
+
+    const dialog = screen.getByRole("dialog", { name: "响应 JSON" });
+    expect(within(dialog).getByText(/Failed to fetch/)).toBeInTheDocument();
+  });
+
   test("records prompt history, refills prompt, and deletes history rows", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
@@ -751,12 +767,12 @@ describe("App", () => {
     expect(runningPanel).not.toBeNull();
     expect(
       [...(runningPanel as HTMLElement).querySelectorAll("button,a")]
-        .map((element) => (element.textContent || "").trim())
-        .filter((text) => ["取消请求", "复用 Prompt"].includes(text)),
-    ).toEqual(["取消请求", "复用 Prompt"]);
+        .map((element) => element.getAttribute("aria-label") || (element.textContent || "").trim())
+        .filter((text) => ["复用 Prompt"].includes(text)),
+    ).toEqual(["复用 Prompt"]);
 
     const requestList = screen.getByRole("complementary", { name: "请求列表" });
-    await user.click(within(requestList).getByRole("button", { name: "取消请求" }));
+    await user.click(within(requestList).getAllByRole("button", { name: "取消请求" })[0]);
     const cancelDialog = screen.getByRole("alertdialog", { name: "取消请求" });
     expect(within(cancelDialog).getByText("所有进行中和排队请求将被取消。")).toBeInTheDocument();
     await user.click(within(cancelDialog).getByRole("button", { name: "确认取消请求" }));
@@ -776,7 +792,6 @@ describe("App", () => {
     renderApp();
     const prompt = await screen.findByLabelText("Prompt");
     const requestList = screen.getByRole("complementary", { name: "请求列表" });
-    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
 
     await user.type(prompt, "first request");
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
@@ -790,26 +805,28 @@ describe("App", () => {
     await waitFor(() =>
       expect(within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ })).toHaveLength(3),
     );
-    const [thirdCard, secondCard, firstCard] = within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ });
+    const [thirdCard, , firstCard] = within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ });
+    const thirdCardRow = thirdCard.parentElement as HTMLElement;
+    const firstCardRow = firstCard.parentElement as HTMLElement;
 
-    await user.click(within(resultPanel).getByRole("button", { name: "取消请求" }));
+    await user.click(within(firstCardRow).getByRole("button", { name: "取消请求" }));
     await waitFor(() => {
       const buttons = within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ });
-      expect(buttons[1]).toHaveClass("border-primary/60", "bg-primary/5");
-      expect(buttons[2]).not.toHaveClass("border-primary/60", "bg-primary/5");
+      expect(buttons[1].parentElement).toHaveClass("border-foreground/20", "bg-[oklch(0.985_0.006_255)]");
+      expect(buttons[2].parentElement).not.toHaveClass("border-foreground/20", "bg-[oklch(0.985_0.006_255)]");
     });
 
     await user.click(thirdCard);
     await waitFor(() => {
       const buttons = within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ });
-      expect(buttons[0]).toHaveClass("border-primary/60", "bg-primary/5");
+      expect(buttons[0].parentElement).toHaveClass("border-foreground/20", "bg-[oklch(0.985_0.006_255)]");
     });
-    await user.click(within(resultPanel).getByRole("button", { name: "取消请求" }));
+    await user.click(within(thirdCardRow).getByRole("button", { name: "取消请求" }));
     await waitFor(() => {
       const buttons = within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ });
-      expect(buttons[1]).toHaveClass("border-primary/60", "bg-primary/5");
+      expect(buttons[1].parentElement).toHaveClass("border-foreground/20", "bg-[oklch(0.985_0.006_255)]");
     });
-    expect(firstCard).not.toHaveClass("border-primary/60", "bg-primary/5");
+    expect(firstCardRow).not.toHaveClass("border-foreground/20", "bg-[oklch(0.985_0.006_255)]");
   });
 
   test("keeps request method and size visible when responses requests fail", async () => {

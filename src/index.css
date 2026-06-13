@@ -30,25 +30,25 @@
 
 :root {
   color-scheme: light;
-  --radius: 0.5rem;
-  --background: oklch(0.985 0.004 165);
-  --foreground: oklch(0.21 0.018 170);
+  --radius: 0.75rem;
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.15 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.018 170);
+  --card-foreground: oklch(0.15 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.018 170);
-  --primary: oklch(0.47 0.104 183);
-  --primary-foreground: oklch(0.99 0.003 170);
-  --secondary: oklch(0.94 0.015 173);
-  --secondary-foreground: oklch(0.28 0.03 175);
-  --muted: oklch(0.95 0.009 165);
-  --muted-foreground: oklch(0.48 0.025 170);
-  --accent: oklch(0.92 0.021 82);
-  --accent-foreground: oklch(0.31 0.036 79);
+  --popover-foreground: oklch(0.15 0 0);
+  --primary: oklch(0.18 0 0);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.94 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-foreground: oklch(0.42 0 0);
+  --accent: oklch(0.92 0 0);
+  --accent-foreground: oklch(0.15 0 0);
   --destructive: oklch(0.57 0.18 28);
-  --border: oklch(0.88 0.012 170);
-  --input: oklch(0.88 0.012 170);
-  --ring: oklch(0.56 0.11 183);
+  --border: oklch(0.88 0 0);
+  --input: oklch(0.88 0 0);
+  --ring: oklch(0.18 0 0);
 }
 
 @layer base {
@@ -65,6 +65,7 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
+    background-color: var(--background);
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }

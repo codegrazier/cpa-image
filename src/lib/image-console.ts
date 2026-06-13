@@ -14,7 +14,7 @@ export const MIN_REQUEST_INTERVAL_SECONDS = 0;
 export const MAX_REQUEST_INTERVAL_SECONDS = 3600;
 export const MAX_IMAGE_COUNT = 100;
 export const MAX_EDIT_INPUT_IMAGES = 5;
-export const MAX_PROMPT_HISTORY = 20;
+export const MAX_PROMPT_HISTORY = 100;
 export const LAST_PROMPT_KEY_BY_MODE = {
   generate: "CPA-Image-last-prompt",
   edit: "CPA-Image-edit-last-prompt",
@@ -153,6 +153,8 @@ export interface GeneratedImage {
   kind: "base64" | "url";
   path: string;
   mimeType?: string;
+  width?: number;
+  height?: number;
   blob?: Blob;
   objectUrl?: string;
 }
@@ -894,6 +896,8 @@ function serializeGeneratedImage(image: unknown): GeneratedImage | null {
     kind,
     path,
     mimeType: candidate.mimeType || undefined,
+    width: typeof candidate.width === "number" ? candidate.width : undefined,
+    height: typeof candidate.height === "number" ? candidate.height : undefined,
   };
 }
 
@@ -1091,6 +1095,57 @@ function imageBlobFromImage(image: GeneratedImage) {
   return imageBlobFromDataUrl(image.src, imageFormatFromMimeType(image.mimeType));
 }
 
+async function imageDimensionsFromBlob(blob: Blob, fallbackSource = "") {
+  if (typeof document === "undefined") return null;
+
+  if (typeof createImageBitmap === "function") {
+    let bitmap: ImageBitmap | null = null;
+
+    try {
+      bitmap = await createImageBitmap(blob);
+      return { width: bitmap.width, height: bitmap.height };
+    } catch {
+      // Fall back to HTMLImageElement below.
+    } finally {
+      try {
+        bitmap?.close?.();
+      } catch {
+        // Ignore bitmap cleanup failures.
+      }
+    }
+  }
+
+  const source = fallbackSource || (typeof URL !== "undefined" && typeof URL.createObjectURL === "function" ? URL.createObjectURL(blob) : "");
+  if (!source) return null;
+
+  return await new Promise<{ width: number; height: number } | null>((resolve) => {
+    const image = new Image();
+    const revoke = source !== fallbackSource && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function";
+
+    image.onload = () => {
+      if (revoke) {
+        try {
+          URL.revokeObjectURL(source);
+        } catch {
+          // Ignore cleanup failures.
+        }
+      }
+      resolve(image.naturalWidth && image.naturalHeight ? { width: image.naturalWidth, height: image.naturalHeight } : null);
+    };
+    image.onerror = () => {
+      if (revoke) {
+        try {
+          URL.revokeObjectURL(source);
+        } catch {
+          // Ignore cleanup failures.
+        }
+      }
+      resolve(null);
+    };
+    image.src = source;
+  });
+}
+
 export function prepareImageForDetailCache(image: GeneratedImage): GeneratedImage | null {
   if (image.kind === "url") {
     return {
@@ -1098,6 +1153,8 @@ export function prepareImageForDetailCache(image: GeneratedImage): GeneratedImag
       kind: "url",
       path: image.path,
       mimeType: image.mimeType,
+      width: image.width,
+      height: image.height,
     };
   }
 
@@ -1108,6 +1165,8 @@ export function prepareImageForDetailCache(image: GeneratedImage): GeneratedImag
       kind: "base64",
       path: image.path,
       mimeType: blob.type || image.mimeType,
+      width: image.width,
+      height: image.height,
       blob,
     };
   }
@@ -1118,10 +1177,29 @@ export function prepareImageForDetailCache(image: GeneratedImage): GeneratedImag
       kind: "base64",
       path: image.path,
       mimeType: image.mimeType || dataUrlMimeType(image.src),
+      width: image.width,
+      height: image.height,
     };
   }
 
   return null;
+}
+
+export async function prepareImageForDetailCacheWithDimensions(image: GeneratedImage) {
+  const cached = prepareImageForDetailCache(image);
+  if (!cached) return null;
+  if (cached.width && cached.height) return cached;
+
+  const blob = imageBlobFromImage(image);
+  if (!blob) return cached;
+
+  const dimensions = await imageDimensionsFromBlob(blob, image.src);
+  if (!dimensions) return cached;
+
+  return {
+    ...cached,
+    ...dimensions,
+  };
 }
 
 export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
@@ -1131,6 +1209,8 @@ export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
       kind: "url",
       path: image.path,
       mimeType: image.mimeType,
+      width: image.width,
+      height: image.height,
     };
   }
 
@@ -1143,6 +1223,8 @@ export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
         kind: "base64",
         path: image.path,
         mimeType: blob.type || image.mimeType,
+        width: image.width,
+        height: image.height,
         objectUrl,
       };
     } catch {
@@ -1155,6 +1237,8 @@ export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
     kind: "base64",
     path: image.path,
     mimeType: image.mimeType || dataUrlMimeType(image.src),
+    width: image.width,
+    height: image.height,
   };
 }
 

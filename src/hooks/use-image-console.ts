@@ -21,6 +21,7 @@ import {
   imageDownloadName,
   missingImageOutputMessage,
   mergePromptHistoryForDisplay,
+  prepareImageForDetailCacheWithDimensions,
   type ConsoleMode,
   normalizeChatCompletionsEndpoint,
   normalizeImageEditsEndpoint,
@@ -494,16 +495,34 @@ export function useImageConsole() {
       .then(async (detail) => {
         if (cancelled) return;
 
+        const detailImages = await Promise.all(
+          (detail?.images || []).map((image) => prepareImageForDetailCacheWithDimensions(image)),
+        );
+        const normalizedDetailImages = detailImages.filter(isGeneratedImage);
         const thumbnail =
           detail?.thumbnail ||
-          (detail?.images?.[0] ? await prepareImageForThumbnailCache(detail.images[0]) : selectedRequest.thumbnail || null);
+          (normalizedDetailImages[0] ? await prepareImageForThumbnailCache(normalizedDetailImages[0]) : selectedRequest.thumbnail || null);
+
+        if (detail && !cancelled) {
+          void saveRequestDetails(
+            [
+              {
+                ...selectedRequest,
+                images: normalizedDetailImages,
+                response: detail.response,
+                thumbnail,
+              },
+            ],
+            { prune: false },
+          );
+        }
 
         commitRecords((records) =>
           records.map((request) =>
             request.id === selectedRequestId
               ? {
                   ...request,
-                  images: (detail?.images || []).map(prepareImageForRuntime),
+                  images: normalizedDetailImages.map(prepareImageForRuntime),
                   response: detail?.response ?? null,
                   thumbnail: request.thumbnail || thumbnail || null,
                   hasCachedDetails: Boolean(detail || request.hasCachedDetails),
@@ -649,7 +668,9 @@ export function useImageConsole() {
           ...image,
           path: `${request.title} · ${image.path}`,
         }));
-        const detailImages = extractedImages.map(prepareImageForDetailCache).filter(isGeneratedImage);
+        const detailImages = (
+          await Promise.all(extractedImages.map((image) => prepareImageForDetailCacheWithDimensions(image)))
+        ).filter(isGeneratedImage);
         const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
         const runtimeSourceImages =
           detailImages.length === extractedImages.length && detailImages.length > 0 ? detailImages : extractedImages;
@@ -837,8 +858,20 @@ export function useImageConsole() {
   }, [settings.baseUrl, settings.llmModel, settings.model]);
 
   const selectedRequestJson = useMemo(() => {
-    if (selectedRequest?.response == null) return "";
-    return JSON.stringify(sanitizeResponseForDisplay(selectedRequest.response), null, 2);
+    if (!selectedRequest) return "";
+
+    const responseForDisplay =
+      selectedRequest.response != null
+        ? selectedRequest.response
+        : selectedRequest.status === "error"
+          ? {
+              error: selectedRequest.error || "请求失败",
+              status: selectedRequest.status,
+            }
+          : null;
+
+    if (responseForDisplay == null) return "";
+    return JSON.stringify(sanitizeResponseForDisplay(responseForDisplay), null, 2);
   }, [selectedRequest]);
   const prompt = promptByMode[mode];
 

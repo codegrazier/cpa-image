@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import {
   DEFAULTS,
   MAX_EDIT_INPUT_IMAGES,
+  MAX_PROMPT_HISTORY,
   QUALITY_OPTIONS,
   SIZE_OPTIONS,
   formatCompletionTime,
@@ -60,8 +61,23 @@ const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
 
 function statusVariant(status: string) {
   if (status === "error" || status === "canceled") return "destructive" as const;
-  if (status === "done") return "default" as const;
-  return "secondary" as const;
+  return "default" as const;
+}
+
+function statusBadgeClassName(status: string) {
+  if (status === "running") {
+    return "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300";
+  }
+
+  if (status === "queued") {
+    return "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300";
+  }
+
+  if (status === "done") {
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300";
+  }
+
+  return "";
 }
 
 function selectedRequestEmptyText(request: ImageRequestRecord | null, loading = false, language: Language = "zh") {
@@ -76,6 +92,12 @@ function selectedRequestEmptyText(request: ImageRequestRecord | null, loading = 
   return copy.requestCardEmpty.missing;
 }
 
+function selectedRequestImageResolution(request: ImageRequestRecord | null) {
+  const image = request?.images?.[0];
+  if (!image?.width || !image.height) return "";
+  return `${image.width}x${image.height}`;
+}
+
 function ActionSlot({
   visible,
   label,
@@ -85,7 +107,24 @@ function ActionSlot({
   label: string;
   children: ReactNode;
 }) {
-  return <div className="w-32 shrink-0">{visible ? children : <Button className="invisible w-full pointer-events-none" size="sm" tabIndex={-1} aria-hidden="true" type="button" variant="outline">{label}</Button>}</div>;
+  return (
+    <div className="w-28 shrink-0">
+      {visible ? (
+        children
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="invisible w-full pointer-events-none"
+          tabIndex={-1}
+          aria-hidden="true"
+        >
+          {label}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 function OptionSelect({
@@ -127,6 +166,7 @@ function RequestRow({
   imageCount,
   payloadSize,
   buttonRef,
+  onCancelRequest,
   onSelect,
 }: {
   request: ImageRequestRecord;
@@ -135,55 +175,85 @@ function RequestRow({
   imageCount: number;
   payloadSize: string;
   buttonRef?: (element: HTMLButtonElement | null) => void;
+  onCancelRequest?: (id: string) => void;
   onSelect: () => void;
 }) {
   const { copy, language } = useI18n();
   const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
   const requestDetail = request.error || (request.status === "done" ? formatCompletionTime(request.completedAt) : "");
   const thumbnail = request.thumbnail || null;
+  const canCancel = request.status === "queued" || request.status === "running";
 
   return (
-    <button
-      type="button"
+    <div
       className={cn(
-        "grid min-h-22 w-full cursor-pointer grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-4 overflow-hidden rounded-md border bg-card p-2.5 text-left text-card-foreground shadow-xs transition-[border-color,box-shadow,background-color]",
-        "hover:border-ring hover:shadow-sm focus:outline-none",
-        selected && "border-primary/60 bg-primary/5 shadow-sm",
+        "grid min-h-22 w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-4 overflow-hidden rounded-xl border border-border bg-card p-3 text-card-foreground transition-[border-color,background-color,box-shadow]",
+        "hover:border-foreground/15 hover:bg-muted/40",
+        selected && "border-foreground/20 bg-[oklch(0.985_0.006_255)]",
       )}
-      ref={buttonRef}
-      onClick={onSelect}
-      aria-label={language === "en" ? `View ${request.title} result` : `查看 ${request.title} 的生成结果`}
     >
-      <span className="flex size-[5.5rem] shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/20">
-        {thumbnail ? (
-          <img
-            src={thumbnail.src}
-            alt=""
-            aria-hidden="true"
-            loading="lazy"
-            decoding="async"
-            className="block h-full w-full object-cover object-center"
-          />
-        ) : (
-          <ImageIcon aria-hidden="true" className="size-6 text-muted-foreground" />
-        )}
-      </span>
-      <span className="flex min-w-0 flex-col gap-1 overflow-hidden py-0.5">
-        <strong className="block min-w-0 truncate text-sm font-semibold">{request.title}</strong>
-        <span className="block min-w-0 truncate text-xs font-medium text-muted-foreground">{timing}</span>
-        <span className="block min-w-0 truncate text-xs text-muted-foreground" title={requestSummary}>
-          {requestSummary}
+      <button
+        type="button"
+        className="grid min-w-0 cursor-pointer grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-4 text-left focus:outline-none"
+        ref={buttonRef}
+        onClick={onSelect}
+        aria-label={language === "en" ? `View ${request.title} result` : `查看 ${request.title} 的生成结果`}
+      >
+        <span className="flex size-[5.5rem] shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/30">
+          {thumbnail ? (
+            <img
+              src={thumbnail.src}
+              alt=""
+              aria-hidden="true"
+              loading="lazy"
+              decoding="async"
+              className="block h-full w-full object-cover object-center"
+            />
+          ) : (
+            <ImageIcon aria-hidden="true" className="size-6 text-muted-foreground" />
+          )}
         </span>
-        {requestDetail ? (
-          <span className="block min-w-0 truncate text-xs text-muted-foreground" title={requestDetail}>
-            {requestDetail}
+        <span className="flex min-w-0 flex-col gap-1 overflow-hidden py-0.5">
+          <span className="flex min-w-0 items-center gap-2">
+            <Badge variant={statusVariant(request.status)} className={statusBadgeClassName(request.status)}>
+              {copy.requestStatusLabels[request.status] || request.status}
+            </Badge>
+            <strong className="min-w-0 truncate text-sm font-semibold">{request.title}</strong>
           </span>
+          <span className="block min-w-0 truncate text-xs font-medium text-muted-foreground">{timing}</span>
+          <span className="block min-w-0 truncate text-xs text-muted-foreground" title={requestSummary}>
+            {requestSummary}
+          </span>
+          {requestDetail ? (
+            <span className="block min-w-0 truncate text-xs text-muted-foreground" title={requestDetail}>
+              {requestDetail}
+            </span>
+          ) : null}
+        </span>
+      </button>
+      <span className="flex shrink-0 items-start pt-0.5">
+        {canCancel ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label={copy.requestCardStatus.cancel}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCancelRequest?.(request.id);
+                }}
+              >
+                <XIcon data-icon="inline-start" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{copy.requestCardStatus.cancel}</TooltipContent>
+          </Tooltip>
         ) : null}
       </span>
-      <span className="flex shrink-0 items-start pt-0.5">
-        <Badge variant={statusVariant(request.status)}>{copy.requestStatusLabels[request.status] || request.status}</Badge>
-      </span>
-    </button>
+    </div>
   );
 }
 
@@ -199,6 +269,7 @@ function RequestListPanel({
   jsonDialogOpen,
   extraModalOpen,
   onSelectRequest,
+  onCancelRequest,
   onFilterChange,
   onOpenClearAll,
   onCancelRequests,
@@ -209,6 +280,7 @@ function RequestListPanel({
   payloadSize,
 }: ReturnType<typeof useImageConsole> & {
   onSelectRequest: (id: string) => void;
+  onCancelRequest: (id: string) => void;
   onFilterChange: (filter: RequestFilter) => void;
   onOpenClearAll: () => void;
   onCancelRequests: () => void;
@@ -266,15 +338,15 @@ function RequestListPanel({
   }, [clearDialogOpen, extraModalOpen, filteredRequests, jsonDialogOpen, onSelectRequest, selectedRequestId, settingsOpen]);
 
   return (
-    <aside className="flex min-h-0 min-w-0 flex-col rounded-lg border bg-card shadow-sm" aria-label={copy.requestList}>
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b px-4">
+    <aside className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-card shadow-none" aria-label={copy.requestList}>
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-border px-4">
         <strong className="min-w-0 flex-1 truncate text-sm leading-none">{copy.requestList}</strong>
         <span className="shrink-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-muted-foreground">
           {requestSummary}
         </span>
       </div>
 
-      <div className="border-b px-3 py-2">
+      <div className="border-b border-border bg-muted/30 px-3 py-2">
         <div className="grid grid-cols-4 gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -343,7 +415,7 @@ function RequestListPanel({
         </div>
       </div>
 
-      <div className="border-b px-3 py-2">
+      <div className="border-b border-border px-3 py-2">
         <Tabs value={selectedRequestFilter} onValueChange={(value) => onFilterChange(value as RequestFilter)}>
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 xl:grid-cols-4">
             {FILTERS.map((filter) => (
@@ -383,6 +455,7 @@ function RequestListPanel({
                     requestButtonRefs.current.delete(request.id);
                   }
                 }}
+                onCancelRequest={onCancelRequest}
                 onSelect={() => {
                   onSelectRequest(request.id);
                 }}
@@ -448,47 +521,69 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
     selectedRequest,
     selectedRequestDetailLoadingId,
     statusMessage,
-    settings,
-    selectedRequestTiming,
     selectedRequestJson,
     selectedRequestDownload,
     setJsonDialogOpen,
-    cancelRequest,
     reusePrompt,
   } = consoleState;
 
-  const canCancel = selectedRequest?.status === "queued" || selectedRequest?.status === "running";
   const canDownload = selectedRequest?.status === "done" && !selectedRequest.detailsMissing && selectedRequestDownload;
   const canReuse = Boolean(selectedRequest && reusablePromptForRequest(selectedRequest));
+  const canShowResponseJson = Boolean(selectedRequest && selectedRequest.status !== "queued" && selectedRequest.status !== "running");
+  const responseJsonDisabled = !selectedRequestJson;
   const selectedRequestDetailLoading = selectedRequestDetailLoadingId === selectedRequest?.id;
+  const selectedRequestResolution = selectedRequestImageResolution(selectedRequest);
+  const selectedRequestStatusText = selectedRequest
+    ? `${copy.requestStatusLabels[selectedRequest.status] || selectedRequest.status}${selectedRequestResolution ? ` · ${selectedRequestResolution}` : ""}`
+    : copy.requestCardStatus.unselectedSubtitle;
   const inputPromptTooltip = selectedRequest?.sourcePrompt?.trim() || (language === "en" ? "No input Prompt" : "暂无输入 Prompt");
   const revisedPromptTooltip =
     revisedPromptForResponse(selectedRequest?.response) || (language === "en" ? "No revised_prompt found" : "未找到 revised_prompt");
   const statusHeading = statusMessage.state;
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-col rounded-lg border bg-card shadow-sm" aria-live="polite">
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b px-4">
+    <section className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-card shadow-none" aria-live="polite">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-border px-4">
         <strong className="shrink-0 text-sm">{statusHeading}</strong>
         <span className="min-w-0 truncate text-right text-xs font-medium text-muted-foreground">{statusMessage.detail}</span>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
-          <div className="grid min-w-0 flex-1 gap-1">
-            <strong className="min-w-0 truncate text-sm font-semibold">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2">
+          <div className="min-w-0 flex-1">
+            <strong className="block min-w-0 truncate text-sm font-semibold">
               {selectedRequest?.title || copy.requestCardStatus.unselectedTitle}
             </strong>
-            <span className="truncate text-xs font-medium text-muted-foreground">
-              {selectedRequest ? `${copy.requestStatusLabels[selectedRequest.status] || selectedRequest.status}` : copy.requestCardStatus.unselectedSubtitle}
-            </span>
+            <span className="truncate text-xs font-medium text-muted-foreground">{selectedRequestStatusText}</span>
           </div>
-          <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
-            <ActionSlot visible={Boolean(canCancel)} label={copy.cancelRequests}>
-              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => cancelRequest(selectedRequest!.id)}>
-                <XIcon data-icon="inline-start" />
-                {copy.cancelRequests}
+          <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2 self-center">
+            <ActionSlot visible={Boolean(canDownload)} label={copy.requestCardStatus.download}>
+              <Button asChild variant="outline" size="sm" className="w-full">
+                <a href={selectedRequestDownload?.href || "#"} download={selectedRequestDownload?.download}>
+                  <DownloadIcon data-icon="inline-start" />
+                  {copy.requestCardStatus.download}
+                </a>
               </Button>
+            </ActionSlot>
+            <ActionSlot visible={canShowResponseJson} label={copy.requestCardStatus.responseJson}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={responseJsonDisabled}
+                    onClick={() => setJsonDialogOpen(true)}
+                  >
+                    <FileJsonIcon data-icon="inline-start" />
+                    {copy.requestCardStatus.responseJson}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent sideOffset={8} className="whitespace-pre-wrap break-words text-left">
+                  {revisedPromptTooltip}
+                </TooltipContent>
+              </Tooltip>
             </ActionSlot>
             <ActionSlot visible={Boolean(selectedRequest)} label={copy.requestCardStatus.reusePrompt}>
               <Tooltip>
@@ -510,28 +605,6 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
                 </TooltipContent>
               </Tooltip>
             </ActionSlot>
-            <ActionSlot visible={Boolean(selectedRequestJson)} label={copy.requestCardStatus.responseJson}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setJsonDialogOpen(true)}>
-                    <FileJsonIcon data-icon="inline-start" />
-                    {copy.requestCardStatus.responseJson}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent sideOffset={8} className="whitespace-pre-wrap break-words text-left">
-                  {revisedPromptTooltip}
-                </TooltipContent>
-              </Tooltip>
-            </ActionSlot>
-            <ActionSlot visible={Boolean(canDownload)} label={copy.requestCardStatus.download}>
-              <Button asChild variant="outline" size="sm" className="w-full">
-                <a href={selectedRequestDownload?.href || "#"} download={selectedRequestDownload?.download}>
-                  <DownloadIcon data-icon="inline-start" />
-                  {copy.requestCardStatus.download}
-                </a>
-              </Button>
-            </ActionSlot>
-            <span className="w-44 shrink-0 text-right text-xs font-medium tabular-nums text-muted-foreground">{selectedRequestTiming}</span>
           </div>
         </div>
 
@@ -564,7 +637,8 @@ function PromptHistoryPanel({
       <div className="flex items-center justify-between gap-2">
         <FieldTitle>{copy.promptHistory.title}</FieldTitle>
         <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-          {promptHistoryCount}/20{promptHistoryPinnedCount ? ` · ${promptHistoryPinnedCount} ${copy.promptHistory.pinned}` : ""}
+          {promptHistoryCount}/{MAX_PROMPT_HISTORY}
+          {promptHistoryPinnedCount ? ` · ${promptHistoryPinnedCount} ${copy.promptHistory.pinned}` : ""}
         </span>
       </div>
 
@@ -592,7 +666,7 @@ function PromptHistoryPanel({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="flex w-full min-w-0 cursor-pointer items-center overflow-hidden px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                      className="flex w-full min-w-0 cursor-pointer items-center overflow-hidden px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
                       onClick={() => onSelectPrompt(item.prompt)}
                     >
                       <span className="block min-w-0 flex-1 truncate">{item.prompt}</span>
@@ -761,14 +835,14 @@ function GeneratorPanel({
   }
 
   return (
-    <form onSubmit={submitGeneration} className="flex min-h-0 min-w-0 flex-col gap-4 rounded-lg border bg-card p-4 shadow-sm">
+    <form onSubmit={submitGeneration} className="flex min-h-0 min-w-0 flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-none">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs value={mode} onValueChange={(value) => setMode(value as ConsoleMode)}>
-          <TabsList className="h-9">
-            <TabsTrigger value="generate" className="px-3 text-xs">
+          <TabsList className="h-10 rounded-full border border-border bg-muted/40 p-1">
+            <TabsTrigger value="generate" className="rounded-full px-4 text-xs">
               {copy.generator.generate}
             </TabsTrigger>
-            <TabsTrigger value="edit" className="px-3 text-xs">
+            <TabsTrigger value="edit" className="rounded-full px-4 text-xs">
               {copy.generator.edit}
             </TabsTrigger>
           </TabsList>
@@ -821,7 +895,7 @@ function GeneratorPanel({
               <FieldLabel htmlFor="editImages">{copy.generator.selectLocalImage}</FieldLabel>
               <button
                 type="button"
-                className="flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap text-muted-foreground shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground"
+                className="flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap text-muted-foreground shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground"
                 onClick={() => editImagesInputRef.current?.click()}
               >
                 <span className="min-w-0 flex-1 truncate text-left">{copy.generator.choose}</span>
@@ -854,7 +928,7 @@ function GeneratorPanel({
                       historicalEditImageOptions.map((option) => (
                         <SelectItem key={option.value} value={option.value} className="min-h-14 items-center py-2 pr-3">
                           <span className="flex min-w-0 items-center gap-2">
-                            <span className="flex size-9 shrink-0 overflow-hidden rounded-sm border bg-muted/20">
+                            <span className="flex size-9 shrink-0 overflow-hidden rounded-md border border-border bg-muted/30">
                               {option.thumbnail?.src ? (
                                 <img
                                   src={option.thumbnail.src}
@@ -894,7 +968,7 @@ function GeneratorPanel({
                   {editImages.map((image, index) => (
                     <div
                       key={`${image.sourceKey || image.name}-${index}`}
-                      className="relative aspect-square min-w-0 overflow-hidden rounded-md border bg-muted/20"
+                      className="relative aspect-square min-w-0 overflow-hidden rounded-md border border-border bg-muted/30"
                     >
                       <img
                         src={image.src}
@@ -906,7 +980,7 @@ function GeneratorPanel({
                         type="button"
                         variant="secondary"
                         size="icon-xs"
-                        className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-background/90 shadow-sm"
+                        className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-background/90 shadow-none"
                         aria-label={`删除输入图片 ${index + 1}`}
                         onClick={() => {
                           setEditImages((current) => current.filter((_, currentIndex) => currentIndex !== index));
@@ -1258,10 +1332,11 @@ export default function App() {
 
   return (
     <>
-      <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-3 p-3 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_400px] lg:overflow-hidden">
+      <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-4 bg-muted/30 p-4 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_400px] lg:overflow-hidden">
         <RequestListPanel
           {...consoleState}
           onSelectRequest={consoleState.setSelectedRequestId}
+          onCancelRequest={consoleState.cancelRequest}
           onFilterChange={consoleState.setSelectedRequestFilter}
           onOpenClearAll={() => consoleState.setClearDialogOpen(true)}
           onCancelRequests={() => setCancelRequestsDialogOpen(true)}

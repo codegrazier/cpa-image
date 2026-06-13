@@ -61,6 +61,7 @@ type Copy = {
     reusePrompt: string;
     responseJson: string;
     download: string;
+    resolution: string;
   };
   promptHistory: {
     title: string;
@@ -183,7 +184,7 @@ const COPY: Record<Language, Copy> = {
       running: "生成中",
       done: "完成",
       error: "失败",
-      canceled: "已取消",
+      canceled: "取消",
     },
     queueRunning: (settings, counts) => ({
       state: "队列运行中",
@@ -211,6 +212,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "复用 Prompt",
       responseJson: "响应 JSON",
       download: "下载",
+      resolution: "响应分辨率",
     },
     promptHistory: {
       title: "历史 Prompt",
@@ -375,6 +377,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "Reuse prompt",
       responseJson: "Response JSON",
       download: "Download",
+      resolution: "Resolution",
     },
     promptHistory: {
       title: "Prompt history",
