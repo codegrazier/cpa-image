@@ -36,15 +36,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useImageConsole } from "@/hooks/use-image-console";
 import { toast } from "sonner";
 import {
-  DEFAULT_STRICT_PROMPT_TEXT,
   DEFAULTS,
   MAX_EDIT_INPUT_IMAGES,
   QUALITY_OPTIONS,
   SIZE_OPTIONS,
-  STRICT_PROMPT_FOOTER,
-  STRICT_PROMPT_HEADER,
   formatCompletionTime,
   generationMethodDisplayName,
+  isDefaultStrictPromptText,
   normalizeStrictPromptText,
   revisedPromptForResponse,
   reusablePromptForRequest,
@@ -407,6 +405,7 @@ function RequestListPanel({
 }
 
 function Gallery({ request, loading }: { request: ImageRequestRecord | null; loading: boolean }) {
+  const { language } = useI18n();
   const images = request?.status === "done" && !request.detailsMissing ? request.images : [];
 
   if (!images?.length) {
@@ -416,7 +415,7 @@ function Gallery({ request, loading }: { request: ImageRequestRecord | null; loa
           <EmptyMedia variant="icon">
             {loading ? <Loader2Icon className="animate-spin" /> : <ImageIcon />}
           </EmptyMedia>
-          <EmptyTitle>{selectedRequestEmptyText(request, loading)}</EmptyTitle>
+          <EmptyTitle>{selectedRequestEmptyText(request, loading, language)}</EmptyTitle>
         </EmptyHeader>
       </Empty>
     );
@@ -642,12 +641,15 @@ function StrictPromptEditorDialog({
   onSave: (value: string) => void;
 }) {
   const { copy } = useI18n();
-  const [draft, setDraft] = useState(() => normalizeStrictPromptText(value));
+  const defaultText = copy.promptEditor.defaultText;
+  const normalizeForLanguage = (input: unknown) =>
+    isDefaultStrictPromptText(input) ? defaultText : normalizeStrictPromptText(input);
+  const [draft, setDraft] = useState(() => normalizeForLanguage(value));
 
   useEffect(() => {
     if (!open) return;
-    setDraft(normalizeStrictPromptText(value));
-  }, [open, value]);
+    setDraft(normalizeForLanguage(value));
+  }, [defaultText, open, value]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -659,7 +661,7 @@ function StrictPromptEditorDialog({
 
         <div className="grid gap-3">
           <div className="rounded-md border bg-muted/30 px-3 py-3">
-            <p className="text-xs font-medium text-muted-foreground">{STRICT_PROMPT_HEADER}</p>
+            <p className="text-xs font-medium text-muted-foreground">{copy.promptEditor.header}</p>
             <Textarea
               id="strictPromptText"
               aria-label={copy.promptEditor.bodyLabel}
@@ -668,7 +670,7 @@ function StrictPromptEditorDialog({
               rows={8}
               className="mt-3 min-h-44 resize-none"
             />
-            <p className="mt-3 text-xs font-medium text-muted-foreground">{STRICT_PROMPT_FOOTER}</p>
+            <p className="mt-3 text-xs font-medium text-muted-foreground">{copy.promptEditor.footer}</p>
           </div>
         </div>
 
@@ -677,7 +679,7 @@ function StrictPromptEditorDialog({
             {copy.promptEditor.cancel}
           </Button>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setDraft(DEFAULT_STRICT_PROMPT_TEXT)}>
+            <Button type="button" variant="outline" onClick={() => setDraft(defaultText)}>
               {copy.promptEditor.restoreDefault}
             </Button>
             <Button
@@ -1255,7 +1257,7 @@ export default function App() {
 
   return (
     <>
-      <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-3 p-3 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_minmax(310px,380px)] lg:overflow-hidden">
+      <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-3 p-3 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_400px] lg:overflow-hidden">
         <RequestListPanel
           {...consoleState}
           onSelectRequest={consoleState.setSelectedRequestId}

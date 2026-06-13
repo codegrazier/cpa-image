@@ -1,10 +1,18 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import App from "@/App";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { DEFAULT_STRICT_PROMPT_TEXT, STORAGE_KEY, STRICT_PROMPT_FOOTER, STRICT_PROMPT_HEADER, type AppSettings } from "@/lib/image-console";
+import { LanguageProvider } from "@/lib/i18n";
+import {
+  DEFAULT_STRICT_PROMPT_TEXT,
+  DEFAULT_STRICT_PROMPT_TEXT_EN,
+  STORAGE_KEY,
+  STRICT_PROMPT_FOOTER,
+  STRICT_PROMPT_HEADER,
+  type AppSettings,
+} from "@/lib/image-console";
 import * as storage from "@/lib/storage";
 
 const PNG_BASE64 = "iVBORw0KGgoA" + "A".repeat(240);
@@ -41,7 +49,9 @@ if (!HTMLElement.prototype.scrollIntoView) {
 function renderApp() {
   return render(
     <TooltipProvider>
-      <App />
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>
     </TooltipProvider>,
   );
 }
@@ -148,6 +158,44 @@ describe("App", () => {
     expect(bodyJson.prompt).toContain(STRICT_PROMPT_HEADER);
     expect(bodyJson.prompt).toContain("只保留主体和光影");
     expect(bodyJson.prompt).toContain(`${STRICT_PROMPT_FOOTER}\nglass jellyfish`);
+  });
+
+  test("uses the language default strict prompt body and preserves custom text across language switches", async () => {
+    localStorage.setItem("CPA-Image-language", "en");
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await user.click(screen.getByRole("button", { name: "Edit strict prompt text" }));
+
+    const englishEditor = screen.getByRole("dialog", { name: "Edit strict prompt" });
+    const englishBody = within(englishEditor).getByLabelText("Strict prompt body");
+    expect(englishBody).toHaveValue(DEFAULT_STRICT_PROMPT_TEXT_EN);
+
+    await user.clear(englishBody);
+    await user.type(englishBody, "Keep only the subject and lighting");
+    await user.click(within(englishEditor).getByRole("button", { name: "Confirm" }));
+
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    const bodyJson = JSON.parse(String(fetchMock.mock.calls[0][1]?.body || "{}")) as { prompt?: string };
+    expect(bodyJson.prompt).toContain("Keep only the subject and lighting");
+
+    cleanup();
+    localStorage.setItem("CPA-Image-language", "zh");
+    renderApp();
+    await user.click(screen.getByRole("button", { name: "编辑原始 Prompt 文案" }));
+
+    const chineseEditor = screen.getByRole("dialog", { name: "编辑原始 Prompt" });
+    expect(within(chineseEditor).getByLabelText("原始 Prompt 正文")).toHaveValue("Keep only the subject and lighting");
   });
 
   test("replaces the test button text with the latest connection result", async () => {

@@ -275,6 +275,18 @@ export const DEFAULT_STRICT_PROMPT_TEXT = [
   "必须逐字保持原始 Prompt 的语义、语言和细节不变。",
 ].join("\n");
 
+export const DEFAULT_STRICT_PROMPT_TEXT_EN = [
+  "Do not rewrite, expand, translate, polish, add missing subjects, change the composition, change the style, or add elements that do not appear in the original.",
+  "Keep the original style strength, atmosphere, pose, camera language, materials, and lighting; do not make it more conservative or neutral.",
+  "Do not remove keywords, replace them with vague wording, or add anything that is not in the original.",
+  "Must keep the original Prompt's semantics, language, and details exactly as written.",
+].join("\n");
+
+export function isDefaultStrictPromptText(value: unknown) {
+  const text = normalizeStrictPromptText(value);
+  return text === DEFAULT_STRICT_PROMPT_TEXT || text === DEFAULT_STRICT_PROMPT_TEXT_EN;
+}
+
 function isSettingsRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

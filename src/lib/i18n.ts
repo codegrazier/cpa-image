@@ -1,6 +1,14 @@
 import { createElement, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { DEFAULTS, requestControlSummary as baseRequestControlSummary, type AppSettings, type RequestFilter, type RequestStatus } from "@/lib/image-console";
+import {
+  DEFAULTS,
+  DEFAULT_STRICT_PROMPT_TEXT,
+  DEFAULT_STRICT_PROMPT_TEXT_EN,
+  requestControlSummary as baseRequestControlSummary,
+  type AppSettings,
+  type RequestFilter,
+  type RequestStatus,
+} from "@/lib/image-console";
 
 export type Language = "zh" | "en";
 
@@ -66,6 +74,9 @@ type Copy = {
   promptEditor: {
     title: string;
     description: string;
+    header: string;
+    footer: string;
+    defaultText: string;
     bodyLabel: string;
     cancel: string;
     restoreDefault: string;
@@ -212,6 +223,9 @@ const COPY: Record<Language, Copy> = {
     promptEditor: {
       title: "编辑原始 Prompt",
       description: "首尾两行固定不可修改，只编辑中间正文。开启此功能也不能保证完全保持原始 Prompt。",
+      header: "请把下面的原始 Prompt 当作最终图像指令执行。",
+      footer: "原始 Prompt:",
+      defaultText: DEFAULT_STRICT_PROMPT_TEXT,
       bodyLabel: "原始 Prompt 正文",
       cancel: "取消",
       restoreDefault: "恢复默认",
@@ -368,6 +382,9 @@ const COPY: Record<Language, Copy> = {
     promptEditor: {
       title: "Edit strict prompt",
       description: "The first and last lines are fixed. Only the middle body can be edited, and this feature cannot guarantee a fully preserved original prompt.",
+      header: "Please treat the following original Prompt as the final image instruction.",
+      footer: "Original Prompt:",
+      defaultText: DEFAULT_STRICT_PROMPT_TEXT_EN,
       bodyLabel: "Strict prompt body",
       cancel: "Cancel",
       restoreDefault: "Restore default",

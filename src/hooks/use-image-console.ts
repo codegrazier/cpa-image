@@ -59,6 +59,7 @@ import {
   type StoredConsoleSettings,
   type RequestFilter,
   mergeSettingsForMode,
+  isDefaultStrictPromptText,
   unpinPromptHistory,
 } from "@/lib/image-console";
 import {
@@ -88,14 +89,19 @@ interface StatusMessage {
   detail: string;
 }
 
-function normalizeSettings(values: AppSettings): AppSettings {
+function normalizeSettings(values: AppSettings, defaultStrictPromptText: string): AppSettings {
+  const strictPromptText = normalizeStrictPromptText(values.strictPromptText);
+  const normalizedStrictPromptText = isDefaultStrictPromptText(strictPromptText)
+    ? defaultStrictPromptText
+    : strictPromptText;
+
   return {
     ...DEFAULTS,
     ...values,
     model: String(values.model || DEFAULTS.model).trim(),
     llmModel: String(values.llmModel || DEFAULTS.llmModel).trim(),
     rememberKey: Boolean(values.rememberKey),
-    strictPromptText: normalizeStrictPromptText(values.strictPromptText),
+    strictPromptText: normalizedStrictPromptText,
     strictPrompt: values.strictPrompt ?? DEFAULTS.strictPrompt,
     requestConcurrency: normalizeRequestConcurrency(values.requestConcurrency),
     requestIntervalSeconds: normalizeRequestIntervalSeconds(values.requestIntervalSeconds),
@@ -266,9 +272,25 @@ function initialPinnedPromptHistory(mode: ConsoleMode) {
   }
 }
 
+function syncStrictPromptDefaults(settings: StoredConsoleSettings, defaultStrictPromptText: string) {
+  if (!isDefaultStrictPromptText(settings.shared.strictPromptText)) return settings;
+  if (settings.shared.strictPromptText === defaultStrictPromptText) return settings;
+
+  return {
+    ...settings,
+    shared: {
+      ...settings.shared,
+      strictPromptText: defaultStrictPromptText,
+    },
+  };
+}
+
 export function useImageConsole() {
   const { copy } = useI18n();
-  const [storedSettings, setStoredSettings] = useState<StoredConsoleSettings>(() => initialStoredSettings());
+  const strictPromptDefaultText = copy.promptEditor.defaultText;
+  const [storedSettings, setStoredSettings] = useState<StoredConsoleSettings>(() =>
+    syncStrictPromptDefaults(initialStoredSettings(), strictPromptDefaultText),
+  );
   const [mode, setMode] = useState<ConsoleMode>("generate");
   const [promptByMode, setPromptByMode] = useState<Record<ConsoleMode, string>>(() => ({
     generate: initialPrompt("generate"),
@@ -331,6 +353,19 @@ export function useImageConsole() {
   useEffect(() => {
     storedSettingsRef.current = storedSettings;
   }, [storedSettings]);
+
+  useEffect(() => {
+    const nextStoredSettings = syncStrictPromptDefaults(storedSettingsRef.current, strictPromptDefaultText);
+    if (nextStoredSettings === storedSettingsRef.current) return;
+
+    setStoredSettings(nextStoredSettings);
+    storedSettingsRef.current = nextStoredSettings;
+    settingsRef.current = mergeSettingsForMode(
+      nextStoredSettings.shared,
+      nextStoredSettings.modeSettingsByMode[modeRef.current],
+    );
+    saveSettings(nextStoredSettings);
+  }, [strictPromptDefaultText]);
 
   useEffect(() => {
     requestRecordsRef.current = requestRecords;
@@ -970,7 +1005,7 @@ export function useImageConsole() {
   }, [copy]);
 
   const saveCurrentSettings = useCallback(() => {
-    const normalized = normalizeSettings(settingsRef.current);
+    const normalized = normalizeSettings(settingsRef.current, strictPromptDefaultText);
     const nextStoredSettings = updateStoredSettingsForCurrentMode(storedSettingsRef.current, modeRef.current, normalized);
     setStoredSettings(nextStoredSettings);
     storedSettingsRef.current = nextStoredSettings;
@@ -984,7 +1019,7 @@ export function useImageConsole() {
     clearQueueTimer();
     setSettingsOpen(false);
     scheduleQueueRef.current();
-  }, [clearQueueTimer, copy]);
+  }, [clearQueueTimer, copy, strictPromptDefaultText]);
 
   const resetSettings = useCallback(() => {
     resetStoredSettings();
@@ -1015,7 +1050,7 @@ export function useImageConsole() {
 
   const enqueueGeneration = useCallback(
     (generationMode: "images" | "responses" | "completions") => {
-      const currentSettings = normalizeSettings(settingsRef.current);
+      const currentSettings = normalizeSettings(settingsRef.current, strictPromptDefaultText);
       const values = { ...currentSettings, prompt };
       saveLastPrompt(prompt, modeRef.current);
 
@@ -1080,11 +1115,11 @@ export function useImageConsole() {
       scheduleQueueRef.current();
       return true;
     },
-    [commitRecords, prompt, updatePromptHistory],
+    [commitRecords, prompt, strictPromptDefaultText, updatePromptHistory],
   );
 
   const enqueueEditGeneration = useCallback(() => {
-    const currentSettings = normalizeSettings(settingsRef.current);
+    const currentSettings = normalizeSettings(settingsRef.current, strictPromptDefaultText);
     const values = { ...currentSettings, prompt };
     saveLastPrompt(prompt, modeRef.current);
 
@@ -1138,7 +1173,7 @@ export function useImageConsole() {
     });
     scheduleQueueRef.current();
     return true;
-  }, [commitRecords, editImages, prompt, updatePromptHistory]);
+  }, [commitRecords, editImages, prompt, strictPromptDefaultText, updatePromptHistory]);
 
   const cancelRequest = useCallback(
     (requestId: string) => {
