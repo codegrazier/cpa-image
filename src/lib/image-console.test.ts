@@ -463,7 +463,7 @@ describe("image console logic", () => {
     expect(generationMethodDisplayName("")).toBe("generations");
   });
 
-  test("uses generations as the download filename prefix for image generation", () => {
+  test("uses CPA-Image as the download filename prefix for image generation", () => {
     expect(
       imageDownloadName({
         method: "gpt-image-2",
@@ -471,10 +471,10 @@ describe("image console logic", () => {
         payload: { model: "gpt-image-2" },
         imageCount: 1,
       }),
-    ).toBe("generations-260617-1801-1.png");
+    ).toBe("CPA-Image-260617-1801-1.png");
   });
 
-  test("uses edit as the download filename prefix for edit requests", () => {
+  test("uses CPA-Image as the download filename prefix for edit requests", () => {
     expect(
       imageDownloadName({
         method: "edit",
@@ -482,7 +482,7 @@ describe("image console logic", () => {
         payload: { model: "gpt-image-2" },
         imageCount: 1,
       }),
-    ).toBe("edit-260617-1801-1.png");
+    ).toBe("CPA-Image-260617-1801-1.png");
   });
 
   test("deduplicates prompt history and keeps the newest 100 prompts", () => {

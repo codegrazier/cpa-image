@@ -394,7 +394,7 @@ describe("App", () => {
 
     const historicalSelect = screen.getByLabelText("选择已生成图片");
     await user.click(historicalSelect);
-    await user.click(await screen.findByRole("option", { name: `${requestTitle} · 图片 1` }));
+    await user.click(await screen.findByRole("option", { name: requestTitle }));
 
     expect(screen.queryByText(`${requestTitle}-image-1.png`)).not.toBeInTheDocument();
     expect(screen.getByTestId("edit-image-preview-strip")).toBeInTheDocument();

@@ -929,26 +929,6 @@ function GeneratorPanel({
         {mode === "edit" ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="editImages">{copy.generator.selectLocalImage}</FieldLabel>
-              <button
-                type="button"
-                className="flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap text-muted-foreground shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground"
-                onClick={() => editImagesInputRef.current?.click()}
-              >
-                <span className="min-w-0 flex-1 truncate text-left">{copy.generator.choose}</span>
-                <ChevronDownIcon className="size-4 shrink-0 opacity-50" />
-              </button>
-              <Input
-                id="editImages"
-                ref={editImagesInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleEditImagesChange}
-                className="sr-only"
-              />
-            </Field>
-            <Field>
               <FieldLabel htmlFor="historicalEditImages">{copy.generator.selectHistoricalImage}</FieldLabel>
               <Select
                 value={historicalEditImageValue}
@@ -991,6 +971,26 @@ function GeneratorPanel({
                   </SelectGroup>
                 </SelectContent>
               </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="editImages">{copy.generator.selectLocalImage}</FieldLabel>
+              <button
+                type="button"
+                className="flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap text-muted-foreground shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground"
+                onClick={() => editImagesInputRef.current?.click()}
+              >
+                <span className="min-w-0 flex-1 truncate text-left">{copy.generator.choose}</span>
+                <ChevronDownIcon className="size-4 shrink-0 opacity-50" />
+              </button>
+              <Input
+                id="editImages"
+                ref={editImagesInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleEditImagesChange}
+                className="hidden"
+              />
             </Field>
           </div>
         ) : null}

@@ -880,7 +880,7 @@ export function useImageConsole() {
         const count = requestImageCount(request);
         return Array.from({ length: count }, (_, imageIndex) => ({
           value: `${request.id}:${imageIndex}`,
-          label: `${request.title} · 图片 ${imageIndex + 1}`,
+          label: request.title,
           thumbnail: request.thumbnail || null,
           requestId: request.id,
           requestTitle: request.title,

@@ -1447,14 +1447,7 @@ export function imageDownloadName(
 ) {
   const format = payloadOutputFormat(request?.payload);
   const title = String(request?.title || "image").replace(/[^\w.-]+/g, "-");
-  const prefix =
-    request?.method === "image_generation"
-      ? "image-generation"
-      : request?.method === "completions"
-        ? "completions"
-      : request?.method === "edit"
-          ? "edit"
-        : "generations";
+  const prefix = "CPA-Image";
   const imageCount = request?.images?.length || Number(request?.imageCount || 0);
   const suffix = imageCount > 1 ? `-${index + 1}` : "";
   return `${prefix}-${title}${suffix}.${format}`;
