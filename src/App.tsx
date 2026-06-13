@@ -302,19 +302,10 @@ function RequestListPanel({
   }
 
   useEffect(() => {
-    function isEditableTarget(target: EventTarget | null) {
-      if (!(target instanceof HTMLElement)) return false;
-      if (target.isContentEditable) return true;
-
-      const tagName = target.tagName;
-      return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
-    }
-
     function handleGlobalKeyDown(event: KeyboardEvent) {
       if (event.defaultPrevented) return;
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       if (settingsOpen || clearDialogOpen || jsonDialogOpen || extraModalOpen) return;
-      if (isEditableTarget(event.target)) return;
       if (!filteredRequests.length) return;
 
       event.preventDefault();

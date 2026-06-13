@@ -712,7 +712,6 @@ describe("App", () => {
 
     const secondTitle = requestButtons[1].getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
     const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
-    prompt.blur();
     await user.keyboard("{ArrowDown}");
     expect(requestButtons[1]).toHaveFocus();
     expect(await within(resultPanel).findByText(secondTitle)).toBeInTheDocument();
