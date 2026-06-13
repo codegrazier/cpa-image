@@ -169,6 +169,7 @@ export interface ImageRequestRecord {
   payload: RequestPayload;
   sourcePrompt: string;
   imageCount?: number;
+  imageResolution?: string;
   hasCachedDetails?: boolean;
   detailsMissing?: boolean;
   thumbnail?: GeneratedImage | null;
@@ -830,6 +831,11 @@ export function prepareRequestForCache(request: ImageRequestRecord): CachedReque
     payload: request.payload,
     sourcePrompt: request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload)),
     imageCount: requestImageCount(request),
+    imageResolution:
+      String(request.imageResolution || "").trim() ||
+      (request.images?.[0]?.width && request.images?.[0]?.height
+        ? `${request.images[0].width}x${request.images[0].height}`
+        : ""),
     hasCachedDetails: Boolean(
       request.hasCachedDetails ||
         (request.images?.length || 0) > 0 ||
@@ -859,6 +865,11 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
     payload: request.payload || {},
     sourcePrompt: String(request.sourcePrompt || stripPromptPolicy(payloadPrompt(request.payload))),
     imageCount: Number.parseInt(String(request.imageCount), 10) || (Array.isArray(request.images) ? request.images.length : 0),
+    imageResolution:
+      String(request.imageResolution || "").trim() ||
+      (Array.isArray(request.images) && request.images[0]?.width && request.images[0]?.height
+        ? `${request.images[0].width}x${request.images[0].height}`
+        : ""),
     hasCachedDetails: Boolean(request.hasCachedDetails || request.response != null || request.images?.length || request.thumbnail),
     detailsMissing: Boolean(request.detailsMissing),
     thumbnail: serializeGeneratedImage(request.thumbnail),

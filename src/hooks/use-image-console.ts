@@ -205,9 +205,17 @@ function stripRequestRuntimeDetails(request: ImageRequestRecord): ImageRequestRe
   };
 }
 
-function keepOnlySelectedRequestDetails(records: ImageRequestRecord[], selectedRequestId: string | null) {
+const REQUEST_DETAIL_RETENTION_LIMIT = 8;
+
+function keepOnlySelectedRequestDetails(
+  records: ImageRequestRecord[],
+  selectedRequestId: string | null,
+  retainedRequestDetailIds: string[] = [],
+) {
+  const retainedIds = new Set(retainedRequestDetailIds);
+
   return records.map((request) => {
-    if (request.id === selectedRequestId) return request;
+    if (request.id === selectedRequestId || retainedIds.has(request.id)) return request;
     return stripRequestRuntimeDetails(request);
   });
 }
@@ -336,6 +344,7 @@ export function useImageConsole() {
   const storedSettingsRef = useRef(storedSettings);
   const requestRecordsRef = useRef(requestRecords);
   const selectedRequestIdRef = useRef<string | null>(selectedRequestId);
+  const retainedRequestDetailIdsRef = useRef<string[]>([]);
   const modeRef = useRef<ConsoleMode>("generate");
   const editImagesRef = useRef<EditInputImage[]>(editImages);
   const thumbnailBackfillRef = useRef(new Set<string>());
@@ -436,6 +445,16 @@ export function useImageConsole() {
     setRequestRecords(next);
   }, []);
 
+  const retainRequestDetail = useCallback((requestId: string | null | undefined) => {
+    if (!requestId) return;
+
+    const current = retainedRequestDetailIdsRef.current;
+    retainedRequestDetailIdsRef.current = [requestId, ...current.filter((id) => id !== requestId)].slice(
+      0,
+      REQUEST_DETAIL_RETENTION_LIMIT,
+    );
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -457,7 +476,9 @@ export function useImageConsole() {
     if (!selectedRequestId) {
       setSelectedRequestDetailLoadingId(null);
       if (requestRecordsRef.current.some((request) => request.images.length || request.response != null)) {
-        commitRecords((records) => keepOnlySelectedRequestDetails(records, null));
+        commitRecords((records) =>
+          keepOnlySelectedRequestDetails(records, null, retainedRequestDetailIdsRef.current),
+        );
       }
       return () => {
         cancelled = true;
@@ -472,16 +493,23 @@ export function useImageConsole() {
       };
     }
 
-    commitRecords((records) => keepOnlySelectedRequestDetails(records, selectedRequestId));
-
     const currentSelected = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
+    if (currentSelected && (currentSelected.images.length || currentSelected.response != null)) {
+      retainRequestDetail(selectedRequestId);
+    }
+
+    commitRecords((records) =>
+      keepOnlySelectedRequestDetails(records, selectedRequestId, retainedRequestDetailIdsRef.current),
+    );
+
+    const latestSelected = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
     if (
-      !currentSelected ||
-      currentSelected.status !== "done" ||
-      !currentSelected.hasCachedDetails ||
-      currentSelected.detailsMissing ||
-      currentSelected.images.length ||
-      currentSelected.response != null
+      !latestSelected ||
+      latestSelected.status !== "done" ||
+      !latestSelected.hasCachedDetails ||
+      latestSelected.detailsMissing ||
+      latestSelected.images.length ||
+      latestSelected.response != null
     ) {
       setSelectedRequestDetailLoadingId(null);
       return () => {
@@ -517,14 +545,22 @@ export function useImageConsole() {
           );
         }
 
+        retainRequestDetail(selectedRequestId);
+
         commitRecords((records) =>
           records.map((request) =>
             request.id === selectedRequestId
-              ? {
+                ? {
                   ...request,
                   images: normalizedDetailImages.map(prepareImageForRuntime),
                   response: detail?.response ?? null,
                   thumbnail: request.thumbnail || thumbnail || null,
+                  imageCount: detailImages.length || request.imageCount || normalizedDetailImages.length || 0,
+                  imageResolution:
+                    request.imageResolution ||
+                    (normalizedDetailImages[0]?.width && normalizedDetailImages[0]?.height
+                      ? `${normalizedDetailImages[0].width}x${normalizedDetailImages[0].height}`
+                      : ""),
                   hasCachedDetails: Boolean(detail || request.hasCachedDetails),
                   detailsMissing: !detail,
                 }
@@ -541,7 +577,7 @@ export function useImageConsole() {
     return () => {
       cancelled = true;
     };
-  }, [commitRecords, selectedRequestId]);
+  }, [commitRecords, retainRequestDetail, selectedRequestId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -582,13 +618,14 @@ export function useImageConsole() {
               : item,
           ),
         );
+        retainRequestDetail(request.id);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [commitRecords, requestRecords, selectedRequestId]);
+  }, [commitRecords, retainRequestDetail, requestRecords, selectedRequestId]);
 
   useEffect(() => {
     return () => {
@@ -694,11 +731,17 @@ export function useImageConsole() {
         commitRecords((records) =>
           records.map((item) =>
             item.id === requestId
-              ? {
+                ? {
                   ...item,
                   thumbnail: thumbnail || item.thumbnail || null,
                   response: shouldKeepRuntimeDetails ? displayResponse : null,
                   images,
+                  imageCount: extractedImages.length,
+                  imageResolution:
+                    item.imageResolution ||
+                    (detailImages[0]?.width && detailImages[0]?.height
+                      ? `${detailImages[0].width}x${detailImages[0].height}`
+                      : ""),
                   hasCachedDetails: true,
                   status: extractedImages.length ? "done" : "error",
                   error: missingImageMessage,
@@ -709,6 +752,7 @@ export function useImageConsole() {
               : item,
           ),
         );
+        retainRequestDetail(requestId);
       } catch (error) {
         const typedError = error as Error & { responseBody?: unknown };
         commitRecords((records) =>
@@ -728,7 +772,7 @@ export function useImageConsole() {
                   editImages: [],
                 }
               : item,
-          ),
+            ),
         );
       } finally {
         controllersRef.current.delete(requestId);
@@ -736,7 +780,7 @@ export function useImageConsole() {
         scheduleQueueRef.current();
       }
     },
-    [commitRecords],
+    [commitRecords, retainRequestDetail],
   );
 
   useEffect(() => {
@@ -831,7 +875,7 @@ export function useImageConsole() {
   const requestCounts = useMemo(() => requestFilterCounts(requestRecords), [requestRecords]);
   const historicalEditImageOptions = useMemo(() => {
     return sortedRequestRecordsForFilter(requestRecords, "done")
-      .filter((request) => request.hasCachedDetails && !request.detailsMissing && requestImageCount(request) > 0)
+      .filter((request) => !request.detailsMissing && requestImageCount(request) > 0)
       .flatMap((request) => {
         const count = requestImageCount(request);
         return Array.from({ length: count }, (_, imageIndex) => ({
@@ -963,7 +1007,7 @@ export function useImageConsole() {
         return;
       }
 
-      if (request.status !== "done" || !request.hasCachedDetails || request.detailsMissing) {
+      if (request.status !== "done" || request.detailsMissing) {
         toast.error("该历史请求没有可用图片。");
         return;
       }
@@ -1285,6 +1329,7 @@ export function useImageConsole() {
     lastRequestStartedAtRef.current = 0;
     setSelectedRequestDetailLoadingId(null);
     thumbnailBackfillRef.current.clear();
+    retainedRequestDetailIdsRef.current = [];
     revokeObjectUrls(collectObjectUrls(requestRecordsRef.current));
     requestRecordsRef.current = [];
     setRequestRecords([]);

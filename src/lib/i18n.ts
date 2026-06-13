@@ -39,14 +39,14 @@ const SEO_COPY: Record<
 > = {
   zh: {
     title: "CPA Image | OpenAI 图像生成与编辑控制台",
-    description: "CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持生图、编辑、历史请求、Prompt 复用和响应 JSON。",
+    description: "CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持 2K/4K 高清尺寸、批量请求、并发控制和本地缓存安全策略。",
     ogLocale: "zh_CN",
     ogLocaleAlternate: "en_US",
     imageAlt: "CPA Image OpenAI 图像生成与编辑控制台",
   },
   en: {
     title: "CPA Image | OpenAI Image Generation and Editing Console",
-    description: "CPA Image is an OpenAI-compatible image generation and editing console. It supports image generation, editing, request history, prompt reuse, and JSON responses.",
+    description: "CPA Image is an OpenAI-compatible image generation and editing console with 2K/4K output, batch requests, concurrency control, and a local caching safety strategy.",
     ogLocale: "en_US",
     ogLocaleAlternate: "zh_CN",
     imageAlt: "CPA Image OpenAI image generation and editing console",

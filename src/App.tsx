@@ -93,6 +93,7 @@ function selectedRequestEmptyText(request: ImageRequestRecord | null, loading = 
 }
 
 function selectedRequestImageResolution(request: ImageRequestRecord | null) {
+  if (request?.imageResolution) return request.imageResolution;
   const image = request?.images?.[0];
   if (!image?.width || !image.height) return "";
   return `${image.width}x${image.height}`;
@@ -108,7 +109,7 @@ function ActionSlot({
   children: ReactNode;
 }) {
   return (
-    <div className="w-28 shrink-0">
+    <div className="shrink-0">
       {visible ? (
         children
       ) : (
@@ -116,7 +117,7 @@ function ActionSlot({
           type="button"
           variant="outline"
           size="sm"
-          className="invisible w-full pointer-events-none"
+          className="invisible pointer-events-none"
           tabIndex={-1}
           aria-hidden="true"
         >
@@ -480,37 +481,73 @@ function RequestListPanel({
 function Gallery({ request, loading }: { request: ImageRequestRecord | null; loading: boolean }) {
   const { language } = useI18n();
   const images = request?.status === "done" && !request.detailsMissing ? request.images : [];
+  const isDetailLoading = Boolean(
+    request &&
+      request.status === "done" &&
+      !request.detailsMissing &&
+      !images.length &&
+      (loading || request.hasCachedDetails),
+  );
+  const displayImageCount = request?.status === "done" && !request.detailsMissing ? images.length : 0;
 
-  if (!images?.length) {
+  if (isDetailLoading) {
     return (
-      <Empty className="h-full min-h-90 border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            {loading ? <Loader2Icon className="animate-spin" /> : <ImageIcon />}
-          </EmptyMedia>
-          <EmptyTitle>{selectedRequestEmptyText(request, loading, language)}</EmptyTitle>
-        </EmptyHeader>
-      </Empty>
+      <div className="grid h-full min-h-90 place-items-center rounded-lg border border-border bg-card">
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <Loader2Icon className="size-6 animate-spin" />
+          <span className="text-sm">{selectedRequestEmptyText(request, true, language)}</span>
+        </div>
+      </div>
     );
   }
+
+  if (!displayImageCount) {
+    return (
+      <div className="grid h-full min-h-90 grid-cols-1 gap-3">
+        <Empty className="min-h-90 border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              {loading ? <Loader2Icon className="animate-spin" /> : <ImageIcon />}
+            </EmptyMedia>
+            <EmptyTitle>{selectedRequestEmptyText(request, loading, language)}</EmptyTitle>
+          </EmptyHeader>
+        </Empty>
+      </div>
+    );
+  }
+
+  const gridClass =
+    displayImageCount === 1 ? "grid-cols-1" : "grid-cols-[repeat(auto-fit,minmax(220px,1fr))]";
 
   return (
     <div
       className={cn(
         "grid h-full min-h-90 gap-3",
-        images.length === 1 ? "grid-cols-1" : "grid-cols-[repeat(auto-fit,minmax(220px,1fr))]",
+        gridClass,
       )}
     >
-      {images.map((image, index) => (
-        <article key={`${image.src}-${index}`} className="image-checkerboard flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg border">
-          <img
-            src={image.src}
-            alt={`Generated image ${index + 1}`}
-            loading="lazy"
-            className="block max-h-full max-w-full object-contain"
-          />
-        </article>
-      ))}
+      {Array.from({ length: displayImageCount }, (_, index) => {
+        const image = images[index] || null;
+        return (
+          <article
+            key={`${request?.id || "empty"}-${index}`}
+            className="image-checkerboard relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg border"
+          >
+            {image ? (
+              <img
+                src={image.src}
+                alt={`Generated image ${index + 1}`}
+                loading="lazy"
+                className="block max-h-full max-w-full object-contain"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                {loading ? <Loader2Icon className="size-5 animate-spin text-muted-foreground" /> : <ImageIcon className="size-6 text-muted-foreground" />}
+              </div>
+            )}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -527,7 +564,7 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
     reusePrompt,
   } = consoleState;
 
-  const canDownload = selectedRequest?.status === "done" && !selectedRequest.detailsMissing && selectedRequestDownload;
+  const canDownload = selectedRequest?.status === "done";
   const canReuse = Boolean(selectedRequest && reusablePromptForRequest(selectedRequest));
   const canShowResponseJson = Boolean(selectedRequest && selectedRequest.status !== "queued" && selectedRequest.status !== "running");
   const responseJsonDisabled = !selectedRequestJson;
@@ -558,11 +595,22 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
           </div>
           <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2 self-center">
             <ActionSlot visible={Boolean(canDownload)} label={copy.requestCardStatus.download}>
-              <Button asChild variant="outline" size="sm" className="w-full">
-                <a href={selectedRequestDownload?.href || "#"} download={selectedRequestDownload?.download}>
-                  <DownloadIcon data-icon="inline-start" />
-                  {copy.requestCardStatus.download}
-                </a>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!selectedRequestDownload}
+                onClick={() => {
+                  if (!selectedRequestDownload) return;
+                  const anchor = document.createElement("a");
+                  anchor.href = selectedRequestDownload.href;
+                  anchor.download = selectedRequestDownload.download;
+                  anchor.rel = "noopener";
+                  anchor.click();
+                }}
+              >
+                <DownloadIcon data-icon="inline-start" />
+                {copy.requestCardStatus.download}
               </Button>
             </ActionSlot>
             <ActionSlot visible={canShowResponseJson} label={copy.requestCardStatus.responseJson}>
@@ -572,7 +620,6 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="w-full"
                     disabled={responseJsonDisabled}
                     onClick={() => setJsonDialogOpen(true)}
                   >
@@ -592,7 +639,6 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="w-full"
                     disabled={!canReuse}
                     onClick={() => reusePrompt(selectedRequest!)}
                   >

@@ -401,6 +401,30 @@ describe("App", () => {
     expect(screen.getAllByRole("button", { name: /删除输入图片 \d+/ })).toHaveLength(1);
   });
 
+  test("shows all completed request images in the historical edit selector", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0, n: 4 });
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(await screen.findAllByRole("button", { name: /查看 .* 的生成结果/ })).toHaveLength(4);
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await user.click(screen.getByLabelText("选择已生成图片"));
+
+    expect(await screen.findAllByRole("option")).toHaveLength(4);
+  });
+
   test("keeps generate and edit prompt histories separate", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
