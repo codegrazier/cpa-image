@@ -124,6 +124,7 @@ type Copy = {
   clearDialog: {
     cancel: string;
     clearAll: { title: string; description: string; confirm: string };
+    cancelRequests: { title: string; description: string; confirm: string };
     clearFailed: { title: string; description: string; confirm: string };
     clearCompleted: { title: string; description: string; confirm: string };
   };
@@ -276,6 +277,11 @@ const COPY: Record<Language, Copy> = {
         title: "清空全部",
         description: "所有请求记录和图片详情缓存将被删除，进行中的请求会被取消。",
         confirm: "确认清空全部",
+      },
+      cancelRequests: {
+        title: "取消请求",
+        description: "所有进行中和排队请求将被取消。",
+        confirm: "确认取消请求",
       },
       clearFailed: {
         title: "清空失败",
@@ -435,6 +441,11 @@ const COPY: Record<Language, Copy> = {
         title: "Clear all",
         description: "All request records and image detail cache will be deleted, and active requests will be canceled.",
         confirm: "Confirm clear all",
+      },
+      cancelRequests: {
+        title: "Cancel requests",
+        description: "All running and queued requests will be canceled.",
+        confirm: "Confirm cancel requests",
       },
       clearFailed: {
         title: "Clear failed",

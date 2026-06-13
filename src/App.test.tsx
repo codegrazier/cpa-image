@@ -757,6 +757,9 @@ describe("App", () => {
 
     const requestList = screen.getByRole("complementary", { name: "请求列表" });
     await user.click(within(requestList).getByRole("button", { name: "取消请求" }));
+    const cancelDialog = screen.getByRole("alertdialog", { name: "取消请求" });
+    expect(within(cancelDialog).getByText("所有进行中和排队请求将被取消。")).toBeInTheDocument();
+    await user.click(within(cancelDialog).getByRole("button", { name: "确认取消请求" }));
     expect(await within(requestList).findByText("请求已取消")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /已失败\s*1/ })).toBeInTheDocument();
     expect(screen.queryByText(/responses · auto · n=1/)).not.toBeInTheDocument();

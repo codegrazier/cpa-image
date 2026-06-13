@@ -1251,6 +1251,7 @@ function ResponseJsonDialog({
 export default function App() {
   const { copy } = useI18n();
   const consoleState = useImageConsole();
+  const [cancelRequestsDialogOpen, setCancelRequestsDialogOpen] = useState(false);
   const [clearFailedDialogOpen, setClearFailedDialogOpen] = useState(false);
   const [clearCompletedDialogOpen, setClearCompletedDialogOpen] = useState(false);
   const [strictPromptEditorOpen, setStrictPromptEditorOpen] = useState(false);
@@ -1263,10 +1264,10 @@ export default function App() {
           onSelectRequest={consoleState.setSelectedRequestId}
           onFilterChange={consoleState.setSelectedRequestFilter}
           onOpenClearAll={() => consoleState.setClearDialogOpen(true)}
-          onCancelRequests={consoleState.cancelAllRequests}
+          onCancelRequests={() => setCancelRequestsDialogOpen(true)}
           onOpenClearCompleted={() => setClearCompletedDialogOpen(true)}
           onOpenClearFailed={() => setClearFailedDialogOpen(true)}
-          extraModalOpen={clearFailedDialogOpen || clearCompletedDialogOpen || strictPromptEditorOpen}
+          extraModalOpen={cancelRequestsDialogOpen || clearFailedDialogOpen || clearCompletedDialogOpen || strictPromptEditorOpen}
         />
         <ResultPanel {...consoleState} />
         <GeneratorPanel
@@ -1295,6 +1296,17 @@ export default function App() {
         onConfirm={() => {
           consoleState.setClearDialogOpen(false);
           consoleState.clearAllRequests();
+        }}
+      />
+      <ClearRequestsDialog
+        open={cancelRequestsDialogOpen}
+        onOpenChange={setCancelRequestsDialogOpen}
+        title={copy.clearDialog.cancelRequests.title}
+        description={copy.clearDialog.cancelRequests.description}
+        confirmLabel={copy.clearDialog.cancelRequests.confirm}
+        onConfirm={() => {
+          setCancelRequestsDialogOpen(false);
+          consoleState.cancelAllRequests();
         }}
       />
       <ClearRequestsDialog
