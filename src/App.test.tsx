@@ -13,6 +13,7 @@ import {
   STRICT_PROMPT_FOOTER,
   STRICT_PROMPT_HEADER,
   type AppSettings,
+  type ImageRequestRecord,
 } from "@/lib/image-console";
 import * as storage from "@/lib/storage";
 
@@ -157,6 +158,72 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("en-US");
     expect(window.location.pathname).toBe("/en-US/");
+  });
+
+  test("defaults to the top visible cached request on entry", async () => {
+    const cachedRequests: ImageRequestRecord[] = [
+      {
+        id: "request-1",
+        title: "260613-1200-1",
+        index: 1,
+        total: 1,
+        method: "gpt-image-2",
+        endpoint: "http://localhost:8317/v1/images/generations",
+        payload: { model: "gpt-image-2", n: 1 },
+        sourcePrompt: "first prompt",
+        imageCount: 0,
+        hasCachedDetails: false,
+        detailsMissing: false,
+        status: "done",
+        createdAt: 1000,
+        startedAt: 1000,
+        endedAt: 2000,
+        completedAt: 2000,
+        images: [],
+        response: null,
+        error: "",
+        controller: null,
+        cancelRequested: false,
+        thumbnail: null,
+        editImages: [],
+      },
+      {
+        id: "request-2",
+        title: "260613-1200-2",
+        index: 2,
+        total: 1,
+        method: "gpt-image-2",
+        endpoint: "http://localhost:8317/v1/images/generations",
+        payload: { model: "gpt-image-2", n: 1 },
+        sourcePrompt: "second prompt",
+        imageCount: 0,
+        hasCachedDetails: false,
+        detailsMissing: false,
+        status: "done",
+        createdAt: 2000,
+        startedAt: 2000,
+        endedAt: 3000,
+        completedAt: 3000,
+        images: [],
+        response: null,
+        error: "",
+        controller: null,
+        cancelRequested: false,
+        thumbnail: null,
+        editImages: [],
+      },
+    ];
+
+    vi.spyOn(storage, "loadCachedRequests").mockResolvedValue(cachedRequests);
+    vi.spyOn(storage, "saveCachedRequests").mockImplementation(() => undefined);
+
+    renderApp();
+    const requestList = screen.getByRole("complementary", { name: "请求列表" });
+    await waitFor(() => expect(within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ })).toHaveLength(2));
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    expect(within(resultPanel).getByText("260613-1200-2")).toBeInTheDocument();
+    expect(within(resultPanel).queryByText("260613-1200-1")).not.toBeInTheDocument();
   });
 
   test("switching language does not cancel active requests", async () => {

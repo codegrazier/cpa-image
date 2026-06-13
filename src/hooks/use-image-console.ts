@@ -469,7 +469,7 @@ export function useImageConsole() {
       if (cancelled) return;
       requestRecordsRef.current = records;
       setRequestRecords(records);
-      setSelectedRequestId(records[records.length - 1]?.id || null);
+      setSelectedRequestId(null);
     });
 
     return () => {
