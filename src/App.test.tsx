@@ -128,8 +128,9 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Switch to 中文" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("en-US");
     expect(document.title).toBe("CPA Image | OpenAI Image Generation and Editing Console");
-    expect(document.querySelector('link[rel="canonical"]')?.getAttribute("href")).toContain("?lang=en-US");
-    expect(window.location.search).toBe("?lang=en-US");
+    expect(document.querySelector('link[rel="canonical"]')?.getAttribute("href")).toBe("https://cpa-image.site/en-US/");
+    expect(window.location.pathname).toBe("/en-US/");
+    expect(window.location.search).toBe("");
   });
 
   test("prefers the lang query parameter over saved language", () => {
@@ -140,6 +141,19 @@ describe("App", () => {
 
     expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("en-US");
+    expect(window.location.pathname).toBe("/en-US/");
+  });
+
+  test("prefers the pathname locale over saved language and browser preference", () => {
+    localStorage.setItem("CPA-Image-language", "zh");
+    setNavigatorLanguage("zh-CN");
+    window.history.replaceState({}, "", "/en-US/");
+
+    renderApp();
+
+    expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en-US");
+    expect(window.location.pathname).toBe("/en-US/");
   });
 
   test("hydrates saved settings into the settings dialog", async () => {

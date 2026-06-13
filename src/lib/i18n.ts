@@ -11,10 +11,12 @@ import {
 } from "@/lib/image-console";
 
 export type Language = "zh" | "en";
+export type LanguageLocale = "zh-CN" | "en-US";
 
 const LANGUAGE_STORAGE_KEY = "CPA-Image-language";
 const LANGUAGE_QUERY_KEY = "lang";
-const LANGUAGE_LOCALES: Record<Language, "zh-CN" | "en-US"> = {
+export const SITE_ORIGIN = "https://cpa-image.site";
+export const LANGUAGE_LOCALES: Record<Language, LanguageLocale> = {
   zh: "zh-CN",
   en: "en-US",
 };
@@ -51,6 +53,33 @@ const SEO_COPY: Record<
   },
 };
 
+export function getLanguageLocale(language: Language): LanguageLocale {
+  return LANGUAGE_LOCALES[language];
+}
+
+export function getSeoMetadata(language: Language) {
+  const locale = getLanguageLocale(language);
+  const alternateLanguage = language === "zh" ? "en" : "zh";
+  const alternateLocale = getLanguageLocale(alternateLanguage);
+  const canonicalUrl = `${SITE_ORIGIN}/${locale}/`;
+
+  return {
+    locale,
+    alternateLocale,
+    title: SEO_COPY[language].title,
+    description: SEO_COPY[language].description,
+    imageAlt: SEO_COPY[language].imageAlt,
+    canonicalUrl,
+    alternateUrls: {
+      zh: `${SITE_ORIGIN}/zh-CN/`,
+      en: `${SITE_ORIGIN}/en-US/`,
+      xDefault: SITE_ORIGIN,
+    },
+    ogLocale: SEO_COPY[language].ogLocale,
+    ogLocaleAlternate: SEO_COPY[language].ogLocaleAlternate,
+  };
+}
+
 function languageFromValue(value: string | null | undefined): Language | null {
   const normalized = String(value || "").trim().toLowerCase();
   return LANGUAGE_FROM_LOCALE[normalized] || null;
@@ -74,10 +103,18 @@ function languageFromLocation(search: string): Language | null {
   return languageFromValue(params.get(LANGUAGE_QUERY_KEY));
 }
 
+function languageFromPathname(pathname: string): Language | null {
+  const firstSegment = String(pathname || "")
+    .split("/")
+    .filter(Boolean)[0];
+  return languageFromValue(firstSegment);
+}
+
 function initialLanguage(): Language {
   if (typeof window === "undefined") return "zh";
 
   return (
+    languageFromPathname(window.location.pathname) ||
     languageFromLocation(window.location.search) ||
     languageFromValue(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)) ||
     languageFromBrowser()
@@ -85,8 +122,7 @@ function initialLanguage(): Language {
 }
 
 function currentLanguageUrl(language: Language) {
-  const url = new URL(window.location.href);
-  url.searchParams.set(LANGUAGE_QUERY_KEY, LANGUAGE_LOCALES[language]);
+  const url = new URL(`${SITE_ORIGIN}/${LANGUAGE_LOCALES[language]}/`);
   return url;
 }
 
@@ -118,14 +154,10 @@ function syncLink(rel: string, href: string, hreflang?: string) {
 function syncDocumentLanguage(language: Language) {
   if (typeof document === "undefined" || typeof window === "undefined") return;
 
-  const seo = SEO_COPY[language];
-  const locale = LANGUAGE_LOCALES[language];
+  const seo = getSeoMetadata(language);
   const url = currentLanguageUrl(language);
-  const originPath = `${window.location.origin}${window.location.pathname}`;
-  const alternateLanguage = language === "zh" ? "en" : "zh";
-  const alternateLocale = LANGUAGE_LOCALES[alternateLanguage];
 
-  document.documentElement.lang = locale;
+  document.documentElement.lang = seo.locale;
   document.title = seo.title;
   syncMeta("name", "description", seo.description);
   syncMeta("property", "og:type", "website");
@@ -135,20 +167,23 @@ function syncDocumentLanguage(language: Language) {
   syncMeta("property", "og:title", seo.title);
   syncMeta("property", "og:description", seo.description);
   syncMeta("property", "og:url", url.toString());
-  syncMeta("property", "og:image", `${window.location.origin}/og-image.svg`);
+  syncMeta("property", "og:image", `${SITE_ORIGIN}/og-image.svg`);
   syncMeta("property", "og:image:alt", seo.imageAlt);
   syncMeta("name", "twitter:card", "summary_large_image");
   syncMeta("name", "twitter:title", seo.title);
   syncMeta("name", "twitter:description", seo.description);
-  syncMeta("name", "twitter:image", `${window.location.origin}/og-image.svg`);
+  syncMeta("name", "twitter:image", `${SITE_ORIGIN}/og-image.svg`);
   syncMeta("name", "twitter:image:alt", seo.imageAlt);
-  syncLink("canonical", url.toString());
-  syncLink("alternate", `${originPath}?lang=${LANGUAGE_LOCALES.zh}`, LANGUAGE_LOCALES.zh);
-  syncLink("alternate", `${originPath}?lang=${LANGUAGE_LOCALES.en}`, LANGUAGE_LOCALES.en);
-  syncLink("alternate", originPath, "x-default");
+  syncLink("canonical", seo.canonicalUrl);
+  syncLink("alternate", seo.alternateUrls.zh, LANGUAGE_LOCALES.zh);
+  syncLink("alternate", seo.alternateUrls.en, LANGUAGE_LOCALES.en);
+  syncLink("alternate", seo.alternateUrls.xDefault, "x-default");
 
-  if (window.location.search !== url.search) {
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  const nextUrl = new URL(window.location.href);
+  nextUrl.pathname = `/${seo.locale}/`;
+  nextUrl.searchParams.delete(LANGUAGE_QUERY_KEY);
+  if (window.location.pathname !== nextUrl.pathname || window.location.search !== nextUrl.search) {
+    window.history.replaceState(window.history.state, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
   }
 }
 
@@ -628,8 +663,14 @@ const I18N_CONTEXT = createContext<{
   copy: Copy;
 } | null>(null);
 
-export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguage] = useState<Language>(() => initialLanguage());
+export function LanguageProvider({
+  children,
+  initialLanguage: initialLanguageProp,
+}: {
+  children: ReactNode;
+  initialLanguage?: Language;
+}) {
+  const [language, setLanguage] = useState<Language>(() => initialLanguageProp || initialLanguage());
 
   useEffect(() => {
     if (typeof window !== "undefined") {
