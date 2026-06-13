@@ -135,6 +135,13 @@ function queueStatusMessage(
   return copy.queueComplete(settings, { done: doneCount, failed: failedCount, canceled: canceledCount, imageCount });
 }
 
+function missingConnectionMessage(settings: Pick<AppSettings, "baseUrl" | "apiKey">, copy: ReturnType<typeof getCopy>) {
+  const baseUrl = String(settings.baseUrl || "").trim();
+  const apiKey = String(settings.apiKey || "").trim();
+  if (baseUrl && apiKey) return "";
+  return copy.generator.connectionRequired;
+}
+
 function adjacentVisibleRequestId(records: ImageRequestRecord[], requestId: string, filter: RequestFilter) {
   const visibleRequests = sortedRequestRecordsForFilter(records, filter);
   const index = visibleRequests.findIndex((request) => request.id === requestId);
@@ -295,7 +302,7 @@ function syncStrictPromptDefaults(settings: StoredConsoleSettings, defaultStrict
 }
 
 export function useImageConsole() {
-  const { copy } = useI18n();
+  const { copy, language } = useI18n();
   const strictPromptDefaultText = copy.promptEditor.defaultText;
   const [storedSettings, setStoredSettings] = useState<StoredConsoleSettings>(() =>
     syncStrictPromptDefaults(initialStoredSettings(), strictPromptDefaultText),
@@ -441,7 +448,7 @@ export function useImageConsole() {
     const next = updater(previous);
     revokeRemovedObjectUrls(previous, next);
     requestRecordsRef.current = next;
-    void saveCachedRequests(next);
+    void saveCachedRequests(next, language);
     setRequestRecords(next);
   }, []);
 
@@ -458,7 +465,7 @@ export function useImageConsole() {
   useEffect(() => {
     let cancelled = false;
 
-    void loadCachedRequests().then((records) => {
+    void loadCachedRequests(language).then((records) => {
       if (cancelled) return;
       requestRecordsRef.current = records;
       setRequestRecords(records);
@@ -468,7 +475,7 @@ export function useImageConsole() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     let cancelled = false;
@@ -530,6 +537,7 @@ export function useImageConsole() {
         const thumbnail =
           detail?.thumbnail ||
           (normalizedDetailImages[0] ? await prepareImageForThumbnailCache(normalizedDetailImages[0]) : selectedRequest.thumbnail || null);
+        const imageSizeBytes = normalizedDetailImages.reduce((sum, image) => sum + (image.blob?.size || 0), 0);
 
         if (detail && !cancelled) {
           void saveRequestDetails(
@@ -556,6 +564,7 @@ export function useImageConsole() {
                   response: detail?.response ?? null,
                   thumbnail: request.thumbnail || thumbnail || null,
                   imageCount: detailImages.length || request.imageCount || normalizedDetailImages.length || 0,
+                  imageSizeBytes: request.imageSizeBytes || imageSizeBytes,
                   imageResolution:
                     request.imageResolution ||
                     (normalizedDetailImages[0]?.width && normalizedDetailImages[0]?.height
@@ -665,7 +674,7 @@ export function useImageConsole() {
         if (!request) return;
 
         if (request.method === "edit" && !request.editImages?.length) {
-          throw new Error("编辑请求缺少输入图片。");
+          throw new Error(copy.runtime.editRequestMissingImages);
         }
 
         const body =
@@ -676,12 +685,14 @@ export function useImageConsole() {
                 request.payload,
                 request.editImages || [],
                 controller.signal,
+                language,
               )
             : await postImageGeneration(
                 request.endpoint,
                 request.apiKey || "",
                 request.payload,
                 controller.signal,
+                language,
               );
 
         if (cancelRequestedRef.current.has(requestId)) {
@@ -691,7 +702,7 @@ export function useImageConsole() {
                 ? {
                     ...item,
                     status: "canceled",
-                    error: "请求已取消",
+                    error: copy.runtime.requestCanceled,
                     endedAt: item.endedAt ?? performance.now(),
                     cancelRequested: true,
                   }
@@ -708,13 +719,14 @@ export function useImageConsole() {
         const detailImages = (
           await Promise.all(extractedImages.map((image) => prepareImageForDetailCacheWithDimensions(image)))
         ).filter(isGeneratedImage);
+        const imageSizeBytes = detailImages.reduce((sum, image) => sum + (image.blob?.size || 0), 0);
         const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
         const runtimeSourceImages =
           detailImages.length === extractedImages.length && detailImages.length > 0 ? detailImages : extractedImages;
         const images = shouldKeepRuntimeDetails ? runtimeSourceImages.map(prepareImageForRuntime) : [];
         const thumbnail = extractedImages[0] ? await prepareThumbnailFromImage(extractedImages[0]) : null;
         const displayResponse = sanitizeResponseForDisplay(body);
-        const missingImageMessage = extractedImages.length ? "" : missingImageOutputMessage(body);
+        const missingImageMessage = extractedImages.length ? "" : missingImageOutputMessage(body, language);
 
         void saveRequestDetails(
           [
@@ -737,6 +749,7 @@ export function useImageConsole() {
                   response: shouldKeepRuntimeDetails ? displayResponse : null,
                   images,
                   imageCount: extractedImages.length,
+                  imageSizeBytes: item.imageSizeBytes || imageSizeBytes,
                   imageResolution:
                     item.imageResolution ||
                     (detailImages[0]?.width && detailImages[0]?.height
@@ -761,7 +774,7 @@ export function useImageConsole() {
               ? {
                   ...item,
                   status: typedError.name === "AbortError" ? "canceled" : "error",
-                  error: typedError.name === "AbortError" ? "请求已取消" : typedError.message,
+                  error: typedError.name === "AbortError" ? copy.runtime.requestCanceled : typedError.message,
                   response:
                     typedError.name === "AbortError"
                       ? item.response
@@ -909,7 +922,7 @@ export function useImageConsole() {
         ? selectedRequest.response
         : selectedRequest.status === "error"
           ? {
-              error: selectedRequest.error || "请求失败",
+              error: selectedRequest.error || copy.runtime.requestFailed,
               status: selectedRequest.status,
             }
           : null;
@@ -991,24 +1004,27 @@ export function useImageConsole() {
       const request = requestRecordsRef.current.find((item) => item.id === requestId);
 
       if (!request) {
-        toast.error("未找到对应的历史请求。");
+        toast.error(copy.runtime.missingHistoricalRequest);
         return;
       }
 
       if (editImagesRef.current.some((item) => item.sourceKey === sourceKey)) {
-        setStatusMessage({ state: "历史图片已存在", detail: `${request.title} · 图片 ${imageIndex + 1}` });
+        setStatusMessage({
+          state: copy.runtime.historicalImageExists(request.title, imageIndex),
+          detail: copy.runtime.historicalImageExists(request.title, imageIndex),
+        });
         return;
       }
 
       if (editImagesRef.current.length >= MAX_EDIT_INPUT_IMAGES) {
         const message = copy.generator.maxEditImages(MAX_EDIT_INPUT_IMAGES);
         toast.error(message);
-        setStatusMessage({ state: "历史图片已满", detail: message });
+        setStatusMessage({ state: copy.runtime.historicalImageFull, detail: message });
         return;
       }
 
       if (request.status !== "done" || request.detailsMissing) {
-        toast.error("该历史请求没有可用图片。");
+        toast.error(copy.runtime.historicalRequestHasNoImage);
         return;
       }
 
@@ -1016,7 +1032,7 @@ export function useImageConsole() {
         const detail = await loadRequestDetails(requestId);
         const sourceImage = detail?.images?.[imageIndex];
         if (!sourceImage) {
-          toast.error("未找到该历史图片。");
+          toast.error(copy.runtime.historicalImageNotFound);
           return;
         }
 
@@ -1025,7 +1041,7 @@ export function useImageConsole() {
         const image = prepareEditInputImage(sourceImage, `${request.title}-image-${imageIndex + 1}.${extension}`);
 
         if (!image) {
-          toast.error("该历史图片暂不支持加入编辑。");
+          toast.error(copy.runtime.historicalImageNotEditable);
           return;
         }
 
@@ -1033,11 +1049,14 @@ export function useImageConsole() {
           if (current.some((item) => item.sourceKey === sourceKey)) return current;
           return [...current, { ...image, sourceKey }];
         });
-        setStatusMessage({ state: "历史图片已加入编辑", detail: `${request.title} · 图片 ${imageIndex + 1}` });
+        setStatusMessage({
+          state: copy.runtime.historicalImageAddedToEdit(request.title, imageIndex),
+          detail: copy.runtime.historicalImageAddedToEdit(request.title, imageIndex),
+        });
       } catch (error) {
-        const message = (error as Error).message || "历史图片加载失败。";
+        const message = (error as Error).message || copy.runtime.historicalImageLoadFailed;
         toast.error(message);
-        setStatusMessage({ state: "历史图片加载失败", detail: message });
+        setStatusMessage({ state: copy.runtime.historicalImageLoadFailed, detail: message });
       }
     },
     [copy],
@@ -1116,7 +1135,7 @@ export function useImageConsole() {
     setStatusMessage({ state: copy.tests.connectionTesting, detail: endpoint });
 
     try {
-      await fetchModels(currentSettings.baseUrl, currentSettings.apiKey);
+      await fetchModels(currentSettings.baseUrl, currentSettings.apiKey, language);
       setTestConnectionStatus({ label: copy.tests.connectionNormal, tone: "ok" });
       setStatusMessage({ state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail });
     } catch (error) {
@@ -1127,6 +1146,18 @@ export function useImageConsole() {
 
   const enqueueGeneration = useCallback(
     (generationMode: "images" | "responses" | "completions") => {
+      if (!String(prompt || "").trim()) {
+        toast.error(copy.generator.promptRequired);
+        return false;
+      }
+
+      const requestConfigMessage = missingConnectionMessage(settingsRef.current, copy);
+      if (requestConfigMessage) {
+        setStatusMessage({ state: copy.generator.requestNotCreated, detail: requestConfigMessage });
+        toast.error(requestConfigMessage);
+        return false;
+      }
+
       const currentSettings = normalizeSettings(settingsRef.current, strictPromptDefaultText);
       const values = { ...currentSettings, prompt };
       saveLastPrompt(prompt, modeRef.current);
@@ -1137,24 +1168,24 @@ export function useImageConsole() {
 
       try {
         if (generationMode === "completions") {
-          const payload = buildChatCompletionsImagePayload(values);
+          const payload = buildChatCompletionsImagePayload(values, language);
           requestPayloads = buildChatCompletionsImageRequests(payload, values.n);
           endpoint = normalizeChatCompletionsEndpoint(values.baseUrl);
           method = "completions";
         } else if (generationMode === "responses") {
-          const payload = buildResponsesImagePayload(values);
+          const payload = buildResponsesImagePayload(values, language);
           requestPayloads = buildResponsesImageRequests(payload, values.n);
           endpoint = normalizeResponsesEndpoint(values.baseUrl);
           method = "image_generation";
         } else {
-          const payload = buildPayload(values);
+          const payload = buildPayload(values, language);
           requestPayloads = buildGenerationRequests(payload);
           endpoint = normalizeImageEndpoint(values.baseUrl);
           method = "gpt-image-2";
         }
       } catch (error) {
         const message = (error as Error).message;
-        setStatusMessage({ state: "请求未创建", detail: message });
+        setStatusMessage({ state: copy.generator.requestNotCreated, detail: message });
         toast.error(message);
         return false;
       }
@@ -1186,16 +1217,41 @@ export function useImageConsole() {
       commitRecords((records) => [...records, ...newRequests]);
       setSelectedRequestId((currentId) => currentId || newRequests[0]?.id || null);
       setStatusMessage({
-        state: "请求已加入队列",
-        detail: `${generationMethodDisplayName(method)} · ${newRequests.length} 个新请求 · ${requestControlSummary(currentSettings)} · ${endpoint}`,
+        state: copy.generator.requestQueued,
+        detail: copy.runtime.queuedRequestDetail(
+          generationMethodDisplayName(method),
+          newRequests.length,
+          requestControlSummary(currentSettings, language),
+          endpoint,
+        ),
       });
+      toast.success(copy.generator.submissionSuccess(newRequests.length));
       scheduleQueueRef.current();
       return true;
     },
-    [commitRecords, prompt, strictPromptDefaultText, updatePromptHistory],
+    [commitRecords, copy, prompt, strictPromptDefaultText, updatePromptHistory],
   );
 
   const enqueueEditGeneration = useCallback(() => {
+    if (!String(prompt || "").trim()) {
+      toast.error(copy.generator.promptRequired);
+      return false;
+    }
+
+    const requestConfigMessage = missingConnectionMessage(settingsRef.current, copy);
+    if (requestConfigMessage) {
+      setStatusMessage({ state: copy.generator.requestNotCreated, detail: requestConfigMessage });
+      toast.error(requestConfigMessage);
+      return false;
+    }
+
+    if (!editImages.length) {
+      const message = copy.generator.selectAtLeastOneImage;
+      setStatusMessage({ state: copy.generator.requestNotCreated, detail: message });
+      toast.error(message);
+      return false;
+    }
+
     const currentSettings = normalizeSettings(settingsRef.current, strictPromptDefaultText);
     const values = { ...currentSettings, prompt };
     saveLastPrompt(prompt, modeRef.current);
@@ -1206,13 +1262,13 @@ export function useImageConsole() {
     const runtimeImages = editImages.map((image) => ({ ...image }));
 
     try {
-      const payload = buildEditImagePayload(values, runtimeImages);
+      const payload = buildEditImagePayload(values, runtimeImages, language);
       requestPayloads = buildEditImageRequests(payload, values.n);
       endpoint = normalizeImageEditsEndpoint(values.baseUrl);
       method = "edit";
     } catch (error) {
       const message = (error as Error).message;
-      setStatusMessage({ state: "请求未创建", detail: message });
+      setStatusMessage({ state: copy.generator.requestNotCreated, detail: message });
       toast.error(message);
       return false;
     }
@@ -1245,12 +1301,18 @@ export function useImageConsole() {
     commitRecords((records) => [...records, ...newRequests]);
     setSelectedRequestId((currentId) => currentId || newRequests[0]?.id || null);
     setStatusMessage({
-      state: "请求已加入队列",
-      detail: `${generationMethodDisplayName(method)} · ${newRequests.length} 个新请求 · ${requestControlSummary(currentSettings)} · ${endpoint}`,
+      state: copy.generator.requestQueued,
+      detail: copy.runtime.queuedRequestDetail(
+        generationMethodDisplayName(method),
+        newRequests.length,
+        requestControlSummary(currentSettings, language),
+        endpoint,
+      ),
     });
+    toast.success(copy.generator.submissionSuccess(newRequests.length));
     scheduleQueueRef.current();
     return true;
-  }, [commitRecords, editImages, prompt, strictPromptDefaultText, updatePromptHistory]);
+  }, [commitRecords, copy, editImages, prompt, strictPromptDefaultText, updatePromptHistory]);
 
   const cancelRequest = useCallback(
     (requestId: string) => {
@@ -1270,7 +1332,7 @@ export function useImageConsole() {
                 ...item,
                 status: "canceled",
                 endedAt: now,
-                error: wasQueued ? "请求已取消，未发送。" : "请求已取消",
+                error: wasQueued ? copy.runtime.requestCanceledBeforeSend : copy.runtime.requestCanceled,
                 cancelRequested: true,
                 editImages: [],
               }
@@ -1278,10 +1340,10 @@ export function useImageConsole() {
         ),
       );
       setSelectedRequestId(nextSelectedRequestId);
-      setStatusMessage({ state: "已取消请求", detail: request.title });
+      setStatusMessage({ state: copy.runtime.requestCanceled, detail: request.title });
       scheduleQueueRef.current();
     },
-    [commitRecords, selectedRequestFilter],
+    [commitRecords, copy, selectedRequestFilter],
   );
 
   const cancelAllRequests = useCallback(() => {
@@ -1301,22 +1363,22 @@ export function useImageConsole() {
     lastRequestStartedAtRef.current = 0;
     setSelectedRequestDetailLoadingId(null);
 
-    commitRecords((records) =>
-      records.map((item) =>
-        isActiveRequest(item)
-          ? {
-              ...item,
-              status: "canceled",
-              endedAt: now,
-              error: item.status === "queued" ? "请求已取消，未发送。" : "请求已取消",
-              cancelRequested: true,
-              editImages: [],
-            }
-          : item,
-      ),
-    );
-    setStatusMessage({ state: "已取消请求", detail: `${activeRequests.length} 个请求已取消。` });
-  }, [clearQueueTimer, commitRecords]);
+      commitRecords((records) =>
+        records.map((item) =>
+          isActiveRequest(item)
+            ? {
+                ...item,
+                status: "canceled",
+                endedAt: now,
+                error: item.status === "queued" ? copy.runtime.requestCanceledBeforeSend : copy.runtime.requestCanceled,
+                cancelRequested: true,
+                editImages: [],
+              }
+            : item,
+        ),
+      );
+    setStatusMessage({ state: copy.runtime.requestCanceled, detail: copy.runtime.requestsCanceled(activeRequests.length) });
+  }, [clearQueueTimer, commitRecords, copy]);
 
   const clearAllRequests = useCallback(() => {
     for (const controller of controllersRef.current.values()) {
@@ -1335,8 +1397,8 @@ export function useImageConsole() {
     setRequestRecords([]);
     setSelectedRequestId(null);
     void clearCachedRequests();
-    setStatusMessage({ state: "已清空", detail: "所有请求缓存已清空。" });
-  }, [clearQueueTimer]);
+      setStatusMessage({ state: copy.runtime.allRequestsCleared, detail: copy.runtime.allRequestsCleared });
+  }, [clearQueueTimer, copy]);
 
   const clearCompletedRequests = useCallback(() => {
     const removedIds = requestRecordsRef.current
@@ -1348,8 +1410,8 @@ export function useImageConsole() {
     setSelectedRequestDetailLoadingId(null);
     commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "done")));
     void deleteRequestDetails(removedIds);
-    setStatusMessage({ state: "已清空完成", detail: "已完成请求已删除。" });
-  }, [commitRecords]);
+    setStatusMessage({ state: copy.runtime.completedRequestsCleared, detail: copy.runtime.completedRequestsCleared });
+  }, [commitRecords, copy]);
 
   const clearFailedRequests = useCallback(() => {
     const removedIds = requestRecordsRef.current
@@ -1358,8 +1420,28 @@ export function useImageConsole() {
     setSelectedRequestDetailLoadingId(null);
     commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "failed")));
     void deleteRequestDetails(removedIds);
-    setStatusMessage({ state: "已清空失败", detail: "失败和已取消请求已删除。" });
-  }, [commitRecords]);
+    setStatusMessage({ state: copy.runtime.failedRequestsCleared, detail: copy.runtime.failedRequestsCleared });
+  }, [commitRecords, copy]);
+
+  const deleteRequest = useCallback(
+    (requestId: string) => {
+      const request = requestRecordsRef.current.find((item) => item.id === requestId);
+      if (!request || isActiveRequest(request)) return;
+
+      const nextSelectedRequestId = adjacentVisibleRequestId(requestRecordsRef.current, requestId, selectedRequestFilter);
+
+      retainedRequestDetailIdsRef.current = retainedRequestDetailIdsRef.current.filter((id) => id !== requestId);
+      thumbnailBackfillRef.current.delete(requestId);
+      setSelectedRequestDetailLoadingId((current) => (current === requestId ? null : current));
+
+      commitRecords((records) => records.filter((item) => item.id !== requestId));
+      void deleteRequestDetails([requestId]);
+
+      setSelectedRequestId((current) => (current === requestId ? nextSelectedRequestId : current));
+      setStatusMessage({ state: copy.requestCardStatus.deletedRequest, detail: request.title });
+    },
+    [commitRecords, copy, selectedRequestFilter],
+  );
 
   const reusePrompt = useCallback(
     (request: ImageRequestRecord) => {
@@ -1378,7 +1460,7 @@ export function useImageConsole() {
       }
     : null;
 
-  const selectedRequestTiming = selectedRequest ? formatRequestTiming(selectedRequest, now) : "-";
+  const selectedRequestTiming = selectedRequest ? formatRequestTiming(selectedRequest, now, language === "en" ? "en" : "zh") : "-";
   const currentPromptHistory = promptHistoryByMode[mode];
   const currentPinnedPromptHistory = pinnedPromptHistoryByMode[mode];
   const promptHistoryEntries = useMemo(
@@ -1430,6 +1512,7 @@ export function useImageConsole() {
     enqueueGeneration,
     enqueueEditGeneration,
     cancelRequest,
+    deleteRequest,
     cancelAllRequests,
     clearAllRequests,
     clearCompletedRequests,

@@ -99,6 +99,12 @@ function selectedRequestImageResolution(request: ImageRequestRecord | null) {
   return `${image.width}x${image.height}`;
 }
 
+function selectedRequestImageSize(request: ImageRequestRecord | null) {
+  const bytes = Number(request?.imageSizeBytes || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
 function ActionSlot({
   visible,
   label,
@@ -168,6 +174,7 @@ function RequestRow({
   payloadSize,
   buttonRef,
   onCancelRequest,
+  onDeleteRequest,
   onSelect,
 }: {
   request: ImageRequestRecord;
@@ -177,13 +184,22 @@ function RequestRow({
   payloadSize: string;
   buttonRef?: (element: HTMLButtonElement | null) => void;
   onCancelRequest?: (id: string) => void;
+  onDeleteRequest?: (id: string) => void;
   onSelect: () => void;
 }) {
   const { copy, language } = useI18n();
   const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
-  const requestDetail = request.error || (request.status === "done" ? formatCompletionTime(request.completedAt) : "");
+  const requestDetail =
+    request.error || (request.status === "done" ? formatCompletionTime(request.completedAt, language === "en" ? "en" : "zh") : "");
   const thumbnail = request.thumbnail || null;
-  const canCancel = request.status === "queued" || request.status === "running";
+  const isActive = request.status === "queued" || request.status === "running";
+  const actionLabel = isActive ? copy.requestCardStatus.cancel : copy.requestCardStatus.delete;
+  const actionAriaLabel = isActive
+    ? copy.requestCardStatus.cancel
+    : language === "en"
+      ? `Delete ${request.title}`
+      : `删除 ${request.title}`;
+  const ActionIcon = isActive ? XIcon : Trash2Icon;
 
   return (
     <div
@@ -233,26 +249,28 @@ function RequestRow({
         </span>
       </button>
       <span className="flex shrink-0 items-start pt-0.5">
-        {canCancel ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-                aria-label={copy.requestCardStatus.cancel}
-                onClick={(event) => {
-                  event.stopPropagation();
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label={actionAriaLabel}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (isActive) {
                   onCancelRequest?.(request.id);
-                }}
-              >
-                <XIcon data-icon="inline-start" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{copy.requestCardStatus.cancel}</TooltipContent>
-          </Tooltip>
-        ) : null}
+                  return;
+                }
+                onDeleteRequest?.(request.id);
+              }}
+            >
+              <ActionIcon data-icon="inline-start" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{actionLabel}</TooltipContent>
+        </Tooltip>
       </span>
     </div>
   );
@@ -271,6 +289,7 @@ function RequestListPanel({
   extraModalOpen,
   onSelectRequest,
   onCancelRequest,
+  onDeleteRequest,
   onFilterChange,
   onOpenClearAll,
   onCancelRequests,
@@ -282,6 +301,7 @@ function RequestListPanel({
 }: ReturnType<typeof useImageConsole> & {
   onSelectRequest: (id: string) => void;
   onCancelRequest: (id: string) => void;
+  onDeleteRequest: (id: string) => void;
   onFilterChange: (filter: RequestFilter) => void;
   onOpenClearAll: () => void;
   onCancelRequests: () => void;
@@ -289,7 +309,7 @@ function RequestListPanel({
   onOpenClearFailed: () => void;
   extraModalOpen: boolean;
 }) {
-  const { copy } = useI18n();
+  const { copy, language } = useI18n();
   const hasRequests = requestCounts.all > 0;
   const hasActiveRequests = requestCounts.active > 0;
   const hasDoneRequests = requestCounts.done > 0;
@@ -437,7 +457,7 @@ function RequestListPanel({
                 key={request.id}
                 request={request}
                 selected={request.id === selectedRequestId}
-                timing={formatRequestTiming(request, now)}
+                timing={formatRequestTiming(request, now, language === "en" ? "en" : "zh")}
                 imageCount={requestImageCount(request)}
                 payloadSize={payloadSize(request.payload)}
                 buttonRef={(element) => {
@@ -448,6 +468,7 @@ function RequestListPanel({
                   }
                 }}
                 onCancelRequest={onCancelRequest}
+                onDeleteRequest={onDeleteRequest}
                 onSelect={() => {
                   onSelectRequest(request.id);
                 }}
@@ -561,8 +582,9 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
   const responseJsonDisabled = !selectedRequestJson;
   const selectedRequestDetailLoading = selectedRequestDetailLoadingId === selectedRequest?.id;
   const selectedRequestResolution = selectedRequestImageResolution(selectedRequest);
+  const selectedRequestSize = selectedRequestImageSize(selectedRequest);
   const selectedRequestStatusText = selectedRequest
-    ? `${copy.requestStatusLabels[selectedRequest.status] || selectedRequest.status}${selectedRequestResolution ? ` · ${selectedRequestResolution}` : ""}`
+    ? `${copy.requestStatusLabels[selectedRequest.status] || selectedRequest.status}${selectedRequestResolution ? ` · ${selectedRequestResolution}` : ""}${selectedRequestSize ? ` · ${selectedRequestSize}` : ""}`
     : copy.requestCardStatus.unselectedSubtitle;
   const inputPromptTooltip = selectedRequest?.sourcePrompt?.trim() || (language === "en" ? "No input Prompt" : "暂无输入 Prompt");
   const revisedPromptTooltip =
@@ -713,15 +735,13 @@ function PromptHistoryPanel({
                     {item.prompt}
                   </TooltipContent>
                 </Tooltip>
-                <Button
+                  <Button
                   type="button"
                   variant="ghost"
                   size="icon-xs"
                   className="mr-1 shrink-0"
                   aria-label={
-                    language === "en"
-                      ? `${copy.promptHistory.delete} history Prompt：${item.prompt}`
-                      : `${copy.promptHistory.delete}历史 Prompt：${item.prompt}`
+                    `${copy.promptHistory.delete} ${copy.promptHistory.title}: ${item.prompt}`
                   }
                   onClick={() => onDeletePrompt(item.prompt)}
                 >
@@ -872,7 +892,7 @@ function GeneratorPanel({
   }
 
   return (
-    <form onSubmit={submitGeneration} className="flex min-h-0 min-w-0 flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-none">
+    <form noValidate onSubmit={submitGeneration} className="flex min-h-0 min-w-0 flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-none">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs value={mode} onValueChange={(value) => setMode(value as ConsoleMode)}>
           <TabsList className="h-10 rounded-full border border-border bg-muted/40 p-1">
@@ -1018,7 +1038,7 @@ function GeneratorPanel({
                         variant="secondary"
                         size="icon-xs"
                         className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-background/90 shadow-none"
-                        aria-label={`删除输入图片 ${index + 1}`}
+                        aria-label={`${copy.historyImage.deleteButton} ${index + 1}`}
                         onClick={() => {
                           setEditImages((current) => current.filter((_, currentIndex) => currentIndex !== index));
                         }}
@@ -1374,6 +1394,7 @@ export default function App() {
           {...consoleState}
           onSelectRequest={consoleState.setSelectedRequestId}
           onCancelRequest={consoleState.cancelRequest}
+          onDeleteRequest={consoleState.deleteRequest}
           onFilterChange={consoleState.setSelectedRequestFilter}
           onOpenClearAll={() => consoleState.setClearDialogOpen(true)}
           onCancelRequests={() => setCancelRequestsDialogOpen(true)}

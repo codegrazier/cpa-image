@@ -515,12 +515,15 @@ describe("image console logic", () => {
     expect(merged[3].pinned).toBe(false);
   });
 
-  test("sorts done request lists by completion time descending", () => {
+  test("sorts request lists by title, completion, and failure time descending", () => {
     const records = [
-      { id: "created-last", status: "done", createdAt: 3000, endedAt: 4000 },
-      { id: "finished-last", status: "done", createdAt: 1000, endedAt: 9000 },
-      { id: "finished-middle", status: "done", createdAt: 2000, endedAt: 6000 },
-      { id: "queued", status: "queued", createdAt: 5000, endedAt: null },
+      { id: "running-2", title: "260613-1838-2", status: "running", createdAt: 5000, index: 2, endedAt: null },
+      { id: "running-10", title: "260613-1838-10", status: "queued", createdAt: 5000, index: 10, endedAt: null },
+      { id: "created-last", title: "260613-1838-8", status: "done", createdAt: 3000, index: 8, endedAt: 4000, completedAt: 4000 },
+      { id: "finished-last", title: "260613-1839-1", status: "done", createdAt: 1000, index: 1, endedAt: 9000, completedAt: 9000 },
+      { id: "finished-middle", title: "260613-1837-5", status: "done", createdAt: 2000, index: 5, endedAt: 6000, completedAt: 6000 },
+      { id: "failed-new", title: "260613-1838-11", status: "error", createdAt: 4500, index: 11, endedAt: 9500 },
+      { id: "canceled-old", title: "260613-1836-7", status: "canceled", createdAt: 2500, index: 7, endedAt: 7000 },
     ] as never;
 
     expect(sortedRequestRecordsForFilter(records, "done").map((request) => request.id)).toEqual([
@@ -529,10 +532,40 @@ describe("image console logic", () => {
       "created-last",
     ]);
     expect(sortedRequestRecordsForFilter(records, "all").map((request) => request.id)).toEqual([
-      "queued",
-      "finished-middle",
       "finished-last",
+      "failed-new",
+      "running-10",
       "created-last",
+      "running-2",
+      "finished-middle",
+      "canceled-old",
+    ]);
+    expect(sortedRequestRecordsForFilter(records, "active").map((request) => request.id)).toEqual([
+      "running-10",
+      "running-2",
+    ]);
+    expect(sortedRequestRecordsForFilter(records, "failed").map((request) => request.id)).toEqual([
+      "failed-new",
+      "canceled-old",
+    ]);
+  });
+
+  test("sorts title-based active lists with numeric suffixes in descending order", () => {
+    const records = [
+      { id: "queued-2", title: "260613-1838-2", status: "queued", createdAt: 1000, index: 2, endedAt: null },
+      { id: "queued-10", title: "260613-1838-10", status: "queued", createdAt: 1000, index: 10, endedAt: null },
+      { id: "queued-1", title: "260612-2359-1", status: "queued", createdAt: 1000, index: 1, endedAt: null },
+    ] as never;
+
+    expect(sortedRequestRecordsForFilter(records, "active").map((request) => request.id)).toEqual([
+      "queued-10",
+      "queued-2",
+      "queued-1",
+    ]);
+    expect(sortedRequestRecordsForFilter(records, "all").map((request) => request.id)).toEqual([
+      "queued-10",
+      "queued-2",
+      "queued-1",
     ]);
   });
 
@@ -631,6 +664,19 @@ describe("image console logic", () => {
     expect(
       formatRequestTiming(
         {
+          status: "queued",
+          createdAt: 1000,
+          startedAt: null,
+          endedAt: null,
+        },
+        2500,
+        "en",
+      ),
+    ).toBe("Waiting 1.5s");
+
+    expect(
+      formatRequestTiming(
+        {
           status: "done",
           createdAt: 1000,
           startedAt: 2200,
@@ -639,6 +685,19 @@ describe("image console logic", () => {
         6000,
       ),
     ).toBe("等待 1.2s · 用时 3.0s");
+
+    expect(
+      formatRequestTiming(
+        {
+          status: "done",
+          createdAt: 1000,
+          startedAt: 2200,
+          endedAt: 5200,
+        },
+        6000,
+        "en",
+      ),
+    ).toBe("Waiting 1.2s · Duration 3.0s");
   });
 
   test("formats completion clock time", () => {
@@ -646,6 +705,8 @@ describe("image console logic", () => {
 
     expect(formatCompletionTime(completedAt)).toBe("完成于 19:52:03");
     expect(formatCompletionTime(null)).toBe("完成时间未记录");
+    expect(formatCompletionTime(completedAt, "en")).toBe("Completed at 19:52:03");
+    expect(formatCompletionTime(null, "en")).toBe("Completion time not recorded");
   });
 
   test("keeps all request records in cache metadata", () => {

@@ -170,6 +170,7 @@ export interface ImageRequestRecord {
   sourcePrompt: string;
   imageCount?: number;
   imageResolution?: string;
+  imageSizeBytes?: number;
   hasCachedDetails?: boolean;
   detailsMissing?: boolean;
   thumbnail?: GeneratedImage | null;
@@ -191,6 +192,7 @@ export interface CachedRequestRecord
   extends Omit<ImageRequestRecord, "images" | "response" | "controller" | "cancelRequested" | "apiKey" | "editImages"> {
   imageCount: number;
   hasCachedDetails: boolean;
+  imageSizeBytes?: number;
   thumbnail?: GeneratedImage | null;
 }
 
@@ -542,39 +544,45 @@ export function revisedPromptForResponse(value: unknown) {
   return walk(value);
 }
 
-export function imageCountFromValue(value: unknown) {
+export function imageCountFromValue(value: unknown, language: MessageLanguage = "zh") {
   const imageCount = Number.parseInt(String(value), 10);
   if (!Number.isInteger(imageCount) || imageCount < 1 || imageCount > MAX_IMAGE_COUNT) {
-    throw new Error(`数量必须是 1 到 ${MAX_IMAGE_COUNT} 之间的整数。`);
+    throw new Error(validationCopy(language).imageCountRange(MAX_IMAGE_COUNT));
   }
   return imageCount;
 }
 
-export function validatePromptAndOutput(values: Pick<GenerationValues, "prompt" | "background" | "outputFormat">) {
+export function validatePromptAndOutput(
+  values: Pick<GenerationValues, "prompt" | "background" | "outputFormat">,
+  language: MessageLanguage = "zh",
+) {
   const prompt = String(values.prompt || "").trim();
 
   if (!prompt) {
-    throw new Error("Prompt 不能为空。");
+    throw new Error(validationCopy(language).promptRequired);
   }
 
   if (values.background === "transparent" && values.outputFormat === "jpeg") {
-    throw new Error("透明背景需要 png 或 webp 格式。");
+    throw new Error(validationCopy(language).transparentJpeg);
   }
 
   return prompt;
 }
 
-export function buildPayload(values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">): RequestPayload {
+export function buildPayload(
+  values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">,
+  language: MessageLanguage = "zh",
+): RequestPayload {
   const prompt = validatePromptAndOutput({
     prompt: values.prompt,
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
-  });
-  const imageCount = imageCountFromValue(values.n || DEFAULTS.n);
+  }, language);
+  const imageCount = imageCountFromValue(values.n || DEFAULTS.n, language);
   const model = String(values.model || DEFAULTS.model).trim();
 
   if (!model) {
-    throw new Error("生图模型不能为空。");
+    throw new Error(validationCopy(language).generationModelRequired);
   }
 
   return {
@@ -591,17 +599,18 @@ export function buildPayload(values: Partial<GenerationValues> & Pick<Generation
 
 export function buildResponsesImagePayload(
   values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">,
+  language: MessageLanguage = "zh",
 ): RequestPayload {
   const prompt = validatePromptAndOutput({
     prompt: values.prompt,
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
-  });
+  }, language);
   const model = String(values.llmModel || DEFAULTS.llmModel).trim();
-  imageCountFromValue(values.n || DEFAULTS.n);
+  imageCountFromValue(values.n || DEFAULTS.n, language);
 
   if (!model) {
-    throw new Error("对话模型不能为空。");
+    throw new Error(validationCopy(language).chatModelRequired);
   }
 
   return {
@@ -624,17 +633,18 @@ export function buildResponsesImagePayload(
 
 export function buildChatCompletionsImagePayload(
   values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">,
+  language: MessageLanguage = "zh",
 ): RequestPayload {
   const prompt = validatePromptAndOutput({
     prompt: values.prompt,
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
-  });
+  }, language);
   const model = String(values.llmModel || DEFAULTS.llmModel).trim();
-  imageCountFromValue(values.n || DEFAULTS.n);
+  imageCountFromValue(values.n || DEFAULTS.n, language);
 
   if (!model) {
-    throw new Error("对话模型不能为空。");
+    throw new Error(validationCopy(language).chatModelRequired);
   }
 
   return {
@@ -663,25 +673,26 @@ export function buildChatCompletionsImagePayload(
 export function buildEditImagePayload(
   values: Partial<GenerationValues> & Pick<GenerationValues, "prompt">,
   images: EditInputImage[],
+  language: MessageLanguage = "zh",
 ): RequestPayload {
   const prompt = validatePromptAndOutput({
     prompt: values.prompt,
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
-  });
+  }, language);
   const model = String(values.model || DEFAULTS.model).trim();
-  const requestedCount = imageCountFromValue(values.n || DEFAULTS.n);
+  const requestedCount = imageCountFromValue(values.n || DEFAULTS.n, language);
 
   if (!model) {
-    throw new Error("生图模型不能为空。");
+    throw new Error(validationCopy(language).generationModelRequired);
   }
 
   if (!Array.isArray(images) || !images.length) {
-    throw new Error("请先选择至少一张图片。");
+    throw new Error(validationCopy(language).editInputMissing);
   }
 
   if (images.length > MAX_EDIT_INPUT_IMAGES) {
-    throw new Error(`编辑模式最多选择 ${MAX_EDIT_INPUT_IMAGES} 张图片。`);
+    throw new Error(validationCopy(language).editInputLimit(MAX_EDIT_INPUT_IMAGES));
   }
 
   return {
@@ -751,12 +762,6 @@ export function normalizeRequestIntervalSeconds(value: unknown) {
   );
 }
 
-export function requestControlSummary(settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">) {
-  return `并发 ${normalizeRequestConcurrency(settings.requestConcurrency)} · 间隔 ${normalizeRequestIntervalSeconds(
-    settings.requestIntervalSeconds,
-  )}s`;
-}
-
 export function formatBatchPrefix(date = new Date()) {
   const year = String(date.getFullYear()).slice(-2);
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -816,11 +821,12 @@ export function requestImageCount(request: Pick<ImageRequestRecord, "images" | "
   return request.images?.length || request.imageCount || 0;
 }
 
-export function prepareRequestForCache(request: ImageRequestRecord): CachedRequestRecord {
+export function prepareRequestForCache(request: ImageRequestRecord, language: MessageLanguage = "zh"): CachedRequestRecord {
+  const copy = runtimeCopy(language);
   const status = request.status === "running" || request.status === "queued" ? "canceled" : request.status;
   const endedAt = request.endedAt ?? (status === "canceled" ? performance.now() : null);
   const error =
-    request.status === "running" || request.status === "queued" ? "页面刷新，请求已中断。" : request.error || "";
+    request.status === "running" || request.status === "queued" ? copy.requestInterrupted : request.error || "";
 
   return {
     id: request.id,
@@ -837,6 +843,7 @@ export function prepareRequestForCache(request: ImageRequestRecord): CachedReque
       (request.images?.[0]?.width && request.images?.[0]?.height
         ? `${request.images[0].width}x${request.images[0].height}`
         : ""),
+    imageSizeBytes: Number(request.imageSizeBytes) || 0,
     hasCachedDetails: Boolean(
       request.hasCachedDetails ||
         (request.images?.length || 0) > 0 ||
@@ -853,7 +860,11 @@ export function prepareRequestForCache(request: ImageRequestRecord): CachedReque
   };
 }
 
-export function restoreCachedRequest(request: Partial<ImageRequestRecord & CachedRequestRecord>): ImageRequestRecord {
+export function restoreCachedRequest(
+  request: Partial<ImageRequestRecord & CachedRequestRecord>,
+  language: MessageLanguage = "zh",
+): ImageRequestRecord {
+  const copy = runtimeCopy(language);
   const status = request.status === "running" || request.status === "queued" ? "canceled" : request.status || "canceled";
 
   return {
@@ -871,6 +882,7 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
       (Array.isArray(request.images) && request.images[0]?.width && request.images[0]?.height
         ? `${request.images[0].width}x${request.images[0].height}`
         : ""),
+    imageSizeBytes: Number(request.imageSizeBytes) || 0,
     hasCachedDetails: Boolean(request.hasCachedDetails || request.response != null || request.images?.length || request.thumbnail),
     detailsMissing: Boolean(request.detailsMissing),
     thumbnail: serializeGeneratedImage(request.thumbnail),
@@ -882,15 +894,15 @@ export function restoreCachedRequest(request: Partial<ImageRequestRecord & Cache
     images: [],
     response: null,
     error:
-      request.status === "running" || request.status === "queued" ? "页面刷新，请求已中断。" : request.error || "",
+      request.status === "running" || request.status === "queued" ? copy.requestInterrupted : request.error || "",
     controller: null,
     cancelRequested: false,
     editImages: [],
   };
 }
 
-export function cachedRequestRecords(records: ImageRequestRecord[] = []) {
-  return records.map(prepareRequestForCache);
+export function cachedRequestRecords(records: ImageRequestRecord[] = [], language: MessageLanguage = "zh") {
+  return records.map((record) => prepareRequestForCache(record, language));
 }
 
 function serializeGeneratedImage(image: unknown): GeneratedImage | null {
@@ -928,8 +940,43 @@ export function filteredRequestRecords(records: ImageRequestRecord[] = [], filte
   return records.filter((request) => requestMatchesFilter(request, filter));
 }
 
+function splitRequestTitle(title: unknown) {
+  const rawTitle = String(title || "");
+  const lastDash = rawTitle.lastIndexOf("-");
+
+  if (lastDash <= 0) {
+    return { prefix: rawTitle, index: Number.NaN, rawTitle };
+  }
+
+  return {
+    prefix: rawTitle.slice(0, lastDash),
+    index: Number.parseInt(rawTitle.slice(lastDash + 1), 10),
+    rawTitle,
+  };
+}
+
+function compareRequestTitlesDesc(a: Pick<ImageRequestRecord, "title">, b: Pick<ImageRequestRecord, "title">) {
+  const left = splitRequestTitle(a.title);
+  const right = splitRequestTitle(b.title);
+
+  const prefixDiff = right.prefix.localeCompare(left.prefix);
+  if (prefixDiff) return prefixDiff;
+
+  const leftHasIndex = Number.isFinite(left.index);
+  const rightHasIndex = Number.isFinite(right.index);
+  if (leftHasIndex && rightHasIndex && left.index !== right.index) {
+    return right.index - left.index;
+  }
+
+  return right.rawTitle.localeCompare(left.rawTitle);
+}
+
 export function sortedRequestRecordsForFilter(records: ImageRequestRecord[] = [], filter: RequestFilter = "all") {
   const filtered = filteredRequestRecords(records, filter);
+
+  if (filter === "all" || filter === "active") {
+    return [...filtered].sort(compareRequestTitlesDesc);
+  }
 
   if (filter === "done") {
     return [...filtered].sort((a, b) => {
@@ -937,11 +984,19 @@ export function sortedRequestRecordsForFilter(records: ImageRequestRecord[] = []
         (b.completedAt ?? b.endedAt ?? Number.NEGATIVE_INFINITY) -
         (a.completedAt ?? a.endedAt ?? Number.NEGATIVE_INFINITY);
       if (completedDiff) return completedDiff;
+      const indexDiff = (Number(b.index) || 0) - (Number(a.index) || 0);
+      if (indexDiff) return indexDiff;
       return b.createdAt - a.createdAt;
     });
   }
 
-  return [...filtered].reverse();
+  return [...filtered].sort((a, b) => {
+    const failedDiff = (b.endedAt ?? b.completedAt ?? Number.NEGATIVE_INFINITY) - (a.endedAt ?? a.completedAt ?? Number.NEGATIVE_INFINITY);
+    if (failedDiff) return failedDiff;
+    const indexDiff = (Number(b.index) || 0) - (Number(a.index) || 0);
+    if (indexDiff) return indexDiff;
+    return b.createdAt - a.createdAt;
+  });
 }
 
 export function requestFilterCounts(records: ImageRequestRecord[] = []) {
@@ -957,12 +1012,35 @@ function formatSeconds(milliseconds: number) {
   return `${(Math.max(0, milliseconds) / 1000).toFixed(1)}s`;
 }
 
+type TimingLanguage = "zh" | "en";
+type MessageLanguage = TimingLanguage;
+
+function timingCopy(language: TimingLanguage) {
+  return language === "en"
+    ? {
+        waiting: "Waiting",
+        running: "Elapsed",
+        done: "Duration",
+        completionTime: "Completed at",
+        completionMissing: "Completion time not recorded",
+      }
+    : {
+        waiting: "等待",
+        running: "已用",
+        done: "用时",
+        completionTime: "完成于",
+        completionMissing: "完成时间未记录",
+      };
+}
+
 export function formatRequestTiming(
   request: Pick<ImageRequestRecord, "status" | "createdAt" | "startedAt" | "endedAt">,
   now = performance.now(),
+  language: TimingLanguage = "zh",
 ) {
+  const copy = timingCopy(language);
   const waitEnd = request.startedAt ?? request.endedAt ?? now;
-  const waitText = `等待 ${formatSeconds(waitEnd - request.createdAt)}`;
+  const waitText = `${copy.waiting} ${formatSeconds(waitEnd - request.createdAt)}`;
 
   if (request.status === "queued") {
     return waitText;
@@ -970,19 +1048,87 @@ export function formatRequestTiming(
 
   const runStart = request.startedAt ?? request.createdAt;
   const runEnd = request.endedAt ?? now;
-  const runLabel = request.status === "running" ? "已用" : "用时";
+  const runLabel = request.status === "running" ? copy.running : copy.done;
   return `${waitText} · ${runLabel} ${formatSeconds(runEnd - runStart)}`;
 }
 
-export function formatCompletionTime(completedAt: unknown) {
+export function formatCompletionTime(completedAt: unknown, language: TimingLanguage = "zh") {
+  const copy = timingCopy(language);
   const timestamp = Number(completedAt);
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return "完成时间未记录";
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return copy.completionMissing;
 
   const date = new Date(timestamp);
   const hour = String(date.getHours()).padStart(2, "0");
   const minute = String(date.getMinutes()).padStart(2, "0");
   const second = String(date.getSeconds()).padStart(2, "0");
-  return `完成于 ${hour}:${minute}:${second}`;
+  return `${copy.completionTime} ${hour}:${minute}:${second}`;
+}
+
+function validationCopy(language: MessageLanguage) {
+  return language === "en"
+    ? {
+        promptRequired: "Prompt cannot be empty.",
+        transparentJpeg: "Transparent background requires png or webp.",
+        generationModelRequired: "Image model cannot be empty.",
+        chatModelRequired: "Chat model cannot be empty.",
+        editInputMissing: "Please choose at least one image.",
+        editInputLimit: (count: number) => `Edit mode supports up to ${count} images.`,
+        imageCountRange: (count: number) => `Count must be an integer between 1 and ${count}.`,
+      }
+    : {
+        promptRequired: "Prompt 不能为空。",
+        transparentJpeg: "透明背景需要 png 或 webp 格式。",
+        generationModelRequired: "生图模型不能为空。",
+        chatModelRequired: "对话模型不能为空。",
+        editInputMissing: "请先选择至少一张图片。",
+        editInputLimit: (count: number) => `编辑模式最多选择 ${count} 张图片。`,
+        imageCountRange: (count: number) => `数量必须是 1 到 ${count} 之间的整数。`,
+      };
+}
+
+function runtimeCopy(language: MessageLanguage) {
+  return language === "en"
+    ? {
+        requestControlSummary: (settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">) =>
+          `Concurrency ${normalizeRequestConcurrency(settings.requestConcurrency)} · Interval ${normalizeRequestIntervalSeconds(
+            settings.requestIntervalSeconds,
+          )}s`,
+        missingImageOutput: "No image output was found in the response.",
+        encryptedContentOnly:
+          "The response only contains encrypted_content and no image_generation_call.result; encrypted_content is encrypted content and cannot be parsed as an image.",
+        responseErrorAuthUnavailable:
+          "HTTP 503 auth_unavailable: CLIProxyAPI has no available authentication. Please confirm this page's API key is one of the entries in config.yaml api-keys, and confirm the proxy auth-dir contains usable upstream login/import credentials and image generation is not disabled.",
+        responseErrorInvalidApiKey:
+          "HTTP 401: The API key was not accepted by CLIProxyAPI. Please use the proxy key configured in config.yaml api-keys.",
+        responseErrorPrefix: "Response error:",
+        responseErrorUpstream: (detail: string, code: string) => `Response error: ${detail || "Upstream returned error."}${code}`,
+        requestCanceled: "Request canceled",
+        requestCanceledBeforeSend: "Request canceled before sending.",
+        requestInterrupted: "Page refreshed and the request was interrupted.",
+      }
+    : {
+        requestControlSummary: (settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">) =>
+          `并发 ${normalizeRequestConcurrency(settings.requestConcurrency)} · 间隔 ${normalizeRequestIntervalSeconds(
+            settings.requestIntervalSeconds,
+          )}s`,
+        missingImageOutput: "响应中没有找到图片输出。",
+        encryptedContentOnly: "响应中只有 encrypted_content，没有 image_generation_call.result；encrypted_content 是加密内容，不能解析为图片。",
+        responseErrorAuthUnavailable:
+          "HTTP 503 auth_unavailable：CLIProxyAPI 没有可用认证。请确认本页面 API Key 是 config.yaml 的 api-keys 中的一项；并确认代理端 auth-dir 中已有可用上游登录/导入凭据，且图片生成未被禁用。",
+        responseErrorInvalidApiKey: "HTTP 401：API Key 未被 CLIProxyAPI 接受。请填写 config.yaml 的 api-keys 中配置的代理 key。",
+        responseErrorPrefix: "响应错误：",
+        responseErrorUpstream: (detail: string, code: string) => `响应错误：${detail || "上游返回 error。"}${code}`,
+        requestCanceled: "已取消请求",
+        requestCanceledBeforeSend: "请求已取消，未发送。",
+        requestInterrupted: "页面刷新，请求已中断。",
+      };
+}
+
+export function requestControlSummary(
+  settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">,
+  language: MessageLanguage = "zh",
+) {
+  return runtimeCopy(language).requestControlSummary(settings);
 }
 
 export function detectMimeFromBase64(base64: unknown, fallbackFormat = "png") {
@@ -1366,12 +1512,13 @@ function responseContainsKey(value: unknown, targetKey: string) {
   return walk(value);
 }
 
-export function missingImageOutputMessage(body: unknown) {
+export function missingImageOutputMessage(body: unknown, language: MessageLanguage = "zh") {
+  const copy = runtimeCopy(language);
   if (responseContainsKey(body, "encrypted_content")) {
-    return "响应中只有 encrypted_content，没有 image_generation_call.result；encrypted_content 是加密内容，不能解析为图片。";
+    return copy.encryptedContentOnly;
   }
 
-  return "响应中没有找到图片输出。";
+  return copy.missingImageOutput;
 }
 
 export function sanitizeResponseForDisplay(value: unknown): unknown {
@@ -1416,25 +1563,22 @@ export function responseBodyHasError(body: unknown) {
   return Boolean(isRecord(body) && body.error);
 }
 
-export function responseErrorMessage(status: number, body: unknown) {
+export function responseErrorMessage(status: number, body: unknown, language: MessageLanguage = "zh") {
   const detail = errorDetailFromBody(body);
   const searchable = `${status} ${detail} ${JSON.stringify(sanitizeResponseForDisplay(body))}`.toLowerCase();
+  const copy = runtimeCopy(language);
 
   if (status === 503 && searchable.includes("auth_unavailable")) {
-    return [
-      "HTTP 503 auth_unavailable：CLIProxyAPI 没有可用认证。",
-      "请确认本页面 API Key 是 config.yaml 的 api-keys 中的一项；",
-      "并确认代理端 auth-dir 中已有可用上游登录/导入凭据，且图片生成未被禁用。",
-    ].join("");
+    return copy.responseErrorAuthUnavailable;
   }
 
   if (status === 401 || searchable.includes("invalid api key")) {
-    return "HTTP 401：API Key 未被 CLIProxyAPI 接受。请填写 config.yaml 的 api-keys 中配置的代理 key。";
+    return copy.responseErrorInvalidApiKey;
   }
 
   if (status >= 200 && status < 300 && responseBodyHasError(body)) {
     const code = isRecord(body) && isRecord(body.error) && typeof body.error.code === "string" ? ` (${body.error.code})` : "";
-    return `响应错误：${detail || "上游返回 error。"}${code}`;
+    return copy.responseErrorUpstream(detail, code);
   }
 
   return `HTTP ${status} ${detail}`;

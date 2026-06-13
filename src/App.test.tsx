@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { toast } from "sonner";
 
 import App from "@/App";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -64,6 +65,7 @@ function storeSettings(settings: Partial<AppSettings>) {
       model: "gpt-image-2",
       llmModel: "gpt-5.5",
       rememberKey: false,
+      apiKey: "test-key",
       strictPrompt: true,
       requestConcurrency: 2,
       requestIntervalSeconds: 0,
@@ -93,6 +95,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   window.history.replaceState({}, "", "/");
   setNavigatorLanguage("zh-CN");
+  storeSettings({});
 });
 
 describe("App", () => {
@@ -249,6 +252,58 @@ describe("App", () => {
     expect(within(chineseEditor).getByLabelText("原始 Prompt 正文")).toHaveValue("Keep only the subject and lighting");
   });
 
+  test("shows prompt validation errors as toast messages", async () => {
+    const user = userEvent.setup();
+    const toastErrorSpy = vi.spyOn(toast, "error").mockReturnValue("toast-id");
+
+    renderApp();
+    await user.clear(await screen.findByLabelText("Prompt"));
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(toastErrorSpy).toHaveBeenCalledWith("请先输入 Prompt。");
+    expect(screen.queryByText("请求未创建")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /查看 .* 的生成结果/ })).not.toBeInTheDocument();
+  });
+
+  test("shows localized edit validation errors in English when no input images are selected", async () => {
+    setNavigatorLanguage("en-US");
+    const user = userEvent.setup();
+    const toastErrorSpy = vi.spyOn(toast, "error").mockReturnValue("toast-id");
+
+    renderApp();
+    await user.click(screen.getByRole("tab", { name: "Edit" }));
+    await user.type(await screen.findByLabelText("Prompt"), "replace the room scene");
+    await user.click(screen.getByRole("button", { name: /^edits$/ }));
+
+    expect(toastErrorSpy).toHaveBeenCalledWith("Please choose one or more images.");
+    expect(screen.getByText("Request not created")).toBeInTheDocument();
+    expect(screen.queryByText("请求未创建")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /View .* result/ })).not.toBeInTheDocument();
+  });
+
+  test("shows a localized success toast after submitting a generation request in English", async () => {
+    setNavigatorLanguage("en-US");
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const toastSuccessSpy = vi.spyOn(toast, "success").mockReturnValue("toast-id");
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    await waitFor(() => expect(toastSuccessSpy).toHaveBeenCalledWith("Successfully submitted 1 request."));
+    const requestButton = await screen.findByRole("button", { name: /View .* result/ });
+    expect(requestButton).toHaveTextContent("Waiting 0.0s · Duration 0.0s");
+    expect(requestButton).toHaveTextContent(/Completed at \d{2}:\d{2}:\d{2}/);
+  });
+
   test("replaces the test button text with the latest connection result", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -321,6 +376,54 @@ describe("App", () => {
     expect(Array.from(body.entries()).filter(([key]) => key === "image[]")).toHaveLength(1);
     expect(String(body.get("prompt"))).toContain("glass jellyfish");
     expect(body.get("model")).toBe("gpt-image-2");
+  });
+
+  test("blocks generation and edit submissions until API URL and API key are configured", async () => {
+    const user = userEvent.setup();
+    storeSettings({ apiKey: "" });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    if (typeof URL.createObjectURL !== "function") {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: vi.fn(() => "blob:preview"),
+      });
+    } else {
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
+    }
+
+    if (typeof URL.revokeObjectURL !== "function") {
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        value: vi.fn(),
+      });
+    } else {
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    }
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText("请求未创建")).toBeInTheDocument();
+    expect(screen.getByText("请先配置 API URL 和 API Key。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /查看 .* 的生成结果/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await user.type(screen.getByLabelText("Prompt"), "edit prompt");
+    const file = new File(["image-bytes"], "input.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("选择本地图片"), file);
+    await user.click(screen.getByRole("button", { name: /^edits$/ }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText("请求未创建")).toBeInTheDocument();
   });
 
   test("limits edit image previews to five thumbnails in a single row", async () => {
@@ -573,6 +676,34 @@ describe("App", () => {
     expect(within(requestList).getByText("暂无请求")).toBeInTheDocument();
   });
 
+  test("deletes a completed request from the card action and clears its cached details", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const deleteRequestDetailsSpy = vi.spyOn(storage, "deleteRequestDetails").mockResolvedValue(undefined);
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    const prompt = await screen.findByLabelText("Prompt");
+    await user.type(prompt, "delete me");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    const requestButton = await screen.findByRole("button", { name: /查看 .* 的生成结果/ });
+    const requestId = requestButton.getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
+
+    await user.click(screen.getByRole("button", { name: `删除 ${requestId}` }));
+
+    await waitFor(() => expect(deleteRequestDetailsSpy).toHaveBeenCalledTimes(1));
+    expect(deleteRequestDetailsSpy.mock.calls[0][0]).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /查看 .* 的生成结果/ })).not.toBeInTheDocument();
+    expect(screen.getByText("暂无请求")).toBeInTheDocument();
+  });
+
   test("hides background and format controls and keeps default generation options", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue(
@@ -616,6 +747,7 @@ describe("App", () => {
     expect(screen.getByText(/完成于 \d{2}:\d{2}:\d{2}/)).toBeInTheDocument();
     const completedPanel = document.querySelector('section[aria-live="polite"]');
     expect(completedPanel).not.toBeNull();
+    expect(within(completedPanel as HTMLElement).getByText(/完成 · .*MB/)).toBeInTheDocument();
     expect(
       [...(completedPanel as HTMLElement).querySelectorAll("button,a")]
         .map((element) => element.getAttribute("aria-label") || (element.textContent || "").trim())
@@ -772,7 +904,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "glass jellyfish" }));
     expect(prompt).toHaveValue("glass jellyfish");
 
-    await user.click(screen.getByRole("button", { name: "删除历史 Prompt：glass jellyfish" }));
+    await user.click(screen.getByRole("button", { name: "删除 历史 Prompt: glass jellyfish" }));
     expect(screen.queryByRole("button", { name: "glass jellyfish" })).not.toBeInTheDocument();
     expect(screen.getByText("暂无历史 Prompt")).toBeInTheDocument();
   });
@@ -850,7 +982,7 @@ describe("App", () => {
     const cancelDialog = screen.getByRole("alertdialog", { name: "取消请求" });
     expect(within(cancelDialog).getByText("所有进行中和排队请求将被取消。")).toBeInTheDocument();
     await user.click(within(cancelDialog).getByRole("button", { name: "确认取消请求" }));
-    expect(await within(requestList).findByText("请求已取消")).toBeInTheDocument();
+    expect(await within(requestList).findByText("已取消请求")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /已失败\s*1/ })).toBeInTheDocument();
     expect(screen.queryByText(/responses · auto · n=1/)).not.toBeInTheDocument();
     expect(screen.queryByText(/image_generation · auto/)).not.toBeInTheDocument();

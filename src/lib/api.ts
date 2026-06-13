@@ -26,7 +26,13 @@ export async function parseResponseBody(response: Response) {
   }
 }
 
-export async function postImageGeneration(endpoint: string, apiKey: string, payload: unknown, signal: AbortSignal) {
+export async function postImageGeneration(
+  endpoint: string,
+  apiKey: string,
+  payload: unknown,
+  signal: AbortSignal,
+  language: "zh" | "en" = "zh",
+) {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: authHeaders(apiKey),
@@ -36,7 +42,7 @@ export async function postImageGeneration(endpoint: string, apiKey: string, payl
 
   const body = await parseResponseBody(response);
   if (!response.ok || responseBodyHasError(body)) {
-    const error = new Error(responseErrorMessage(response.status, body)) as Error & {
+    const error = new Error(responseErrorMessage(response.status, body, language)) as Error & {
       responseBody?: unknown;
       status?: number;
     };
@@ -54,6 +60,7 @@ export async function postImageEdit(
   payload: Record<string, unknown>,
   images: Array<{ file?: File; blob?: Blob; name: string; mimeType?: string }>,
   signal: AbortSignal,
+  language: "zh" | "en" = "zh",
 ) {
   const formData = new FormData();
 
@@ -79,7 +86,7 @@ export async function postImageEdit(
   for (const image of images) {
     const file = image.file || image.blob;
     if (!file) {
-      throw new Error("编辑请求缺少可上传的图片。");
+      throw new Error(language === "en" ? "Edit request is missing an uploadable image." : "编辑请求缺少可上传的图片。");
     }
 
     formData.append("image[]", file, image.name);
@@ -94,7 +101,7 @@ export async function postImageEdit(
 
   const body = await parseResponseBody(response);
   if (!response.ok || responseBodyHasError(body)) {
-    const error = new Error(responseErrorMessage(response.status, body)) as Error & {
+    const error = new Error(responseErrorMessage(response.status, body, language)) as Error & {
       responseBody?: unknown;
       status?: number;
     };
@@ -106,7 +113,7 @@ export async function postImageEdit(
   return body;
 }
 
-export async function fetchModels(baseUrl: string, apiKey: string) {
+export async function fetchModels(baseUrl: string, apiKey: string, language: "zh" | "en" = "zh") {
   const endpoint = normalizeModelsEndpoint(baseUrl);
   const response = await fetch(endpoint, {
     method: "GET",
@@ -115,7 +122,7 @@ export async function fetchModels(baseUrl: string, apiKey: string) {
   const body = await parseResponseBody(response);
 
   if (!response.ok || responseBodyHasError(body)) {
-    throw new Error(responseErrorMessage(response.status, body));
+    throw new Error(responseErrorMessage(response.status, body, language));
   }
 
   return { endpoint, body };

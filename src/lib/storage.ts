@@ -479,7 +479,7 @@ async function persistCachedRequestRecords(records: CachedRequestRecord[], fallb
   return false;
 }
 
-export async function loadCachedRequests() {
+export async function loadCachedRequests(language: "zh" | "en" = "zh") {
   const storedRecords = await readStoreValues<CachedRequestRecord>(REQUEST_RECORDS_STORE_NAME);
   if (storedRecords?.length) {
     try {
@@ -487,7 +487,7 @@ export async function loadCachedRequests() {
     } catch {
       // Ignore cleanup failures.
     }
-    return sortCachedRequestRecords(storedRecords).map((record) => restoreCachedRequest(record));
+    return sortCachedRequestRecords(storedRecords).map((record) => restoreCachedRequest(record, language));
   }
 
   const stored = localStorage.getItem(REQUEST_CACHE_KEY);
@@ -497,14 +497,14 @@ export async function loadCachedRequests() {
     const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) return [];
     await persistCachedRequestRecords(parsed as CachedRequestRecord[], false);
-    return sortCachedRequestRecords(parsed as CachedRequestRecord[]).map((record) => restoreCachedRequest(record));
+    return sortCachedRequestRecords(parsed as CachedRequestRecord[]).map((record) => restoreCachedRequest(record, language));
   } catch {
     return [];
   }
 }
 
-export function saveCachedRequests(records: ImageRequestRecord[]) {
-  void persistCachedRequestRecords(cachedRequestRecords(records));
+export function saveCachedRequests(records: ImageRequestRecord[], language: "zh" | "en" = "zh") {
+  void persistCachedRequestRecords(cachedRequestRecords(records, language));
 }
 
 export function clearCachedRequests() {

@@ -231,6 +231,8 @@ type Copy = {
     unselectedTitle: string;
     unselectedSubtitle: string;
     cancel: string;
+    delete: string;
+    deletedRequest: string;
     reusePrompt: string;
     responseJson: string;
     download: string;
@@ -276,6 +278,11 @@ type Copy = {
     keep: string;
     editOriginalPrompt: string;
     editOriginalPromptTooltip: string;
+    promptRequired: string;
+    requestNotCreated: string;
+    connectionRequired: string;
+    requestQueued: string;
+    submissionSuccess: (count: number) => string;
     generations: string;
     responses: string;
     completions: string;
@@ -310,6 +317,25 @@ type Copy = {
     buttonLabel: string;
     deleteButton: string;
     tooltip: string;
+  };
+  runtime: {
+    editRequestMissingImages: string;
+    missingHistoricalRequest: string;
+    historicalImageExists: (requestTitle: string, imageIndex: number) => string;
+    historicalImageFull: string;
+    historicalRequestHasNoImage: string;
+    historicalImageNotFound: string;
+    historicalImageNotEditable: string;
+    historicalImageAddedToEdit: (requestTitle: string, imageIndex: number) => string;
+    historicalImageLoadFailed: string;
+    requestCanceled: string;
+    requestCanceledBeforeSend: string;
+    requestsCanceled: (count: number) => string;
+    allRequestsCleared: string;
+    completedRequestsCleared: string;
+    failedRequestsCleared: string;
+    requestFailed: string;
+    queuedRequestDetail: (method: string, count: number, summary: string, endpoint: string) => string;
   };
   tests: {
     test: string;
@@ -382,6 +408,8 @@ const COPY: Record<Language, Copy> = {
       unselectedTitle: "未选择请求",
       unselectedSubtitle: "生成后点击请求查看结果。",
       cancel: "取消请求",
+      delete: "删除",
+      deletedRequest: "已删除请求",
       reusePrompt: "复用 Prompt",
       responseJson: "响应 JSON",
       download: "下载",
@@ -427,6 +455,11 @@ const COPY: Record<Language, Copy> = {
       keep: "保持",
       editOriginalPrompt: "编辑原始 Prompt 文案",
       editOriginalPromptTooltip: "编辑原始 Prompt 文案",
+      promptRequired: "请先输入 Prompt。",
+      requestNotCreated: "请求未创建",
+      connectionRequired: "请先配置 API URL 和 API Key。",
+      requestQueued: "请求已加入队列",
+      submissionSuccess: (count) => `成功提交 ${count} 个请求。`,
       generations: "generations",
       responses: "responses",
       completions: "completions",
@@ -477,6 +510,25 @@ const COPY: Record<Language, Copy> = {
       buttonLabel: "请选择",
       deleteButton: "删除输入图片",
       tooltip: "切换到历史图片输入",
+    },
+    runtime: {
+      editRequestMissingImages: "编辑请求缺少输入图片。",
+      missingHistoricalRequest: "未找到对应的历史请求。",
+      historicalImageExists: (requestTitle, imageIndex) => `${requestTitle} · 图片 ${imageIndex + 1}`,
+      historicalImageFull: "历史图片已满",
+      historicalRequestHasNoImage: "该历史请求没有可用图片。",
+      historicalImageNotFound: "未找到该历史图片。",
+      historicalImageNotEditable: "该历史图片暂不支持加入编辑。",
+      historicalImageAddedToEdit: (requestTitle, imageIndex) => `${requestTitle} · 图片 ${imageIndex + 1}`,
+      historicalImageLoadFailed: "历史图片加载失败。",
+      requestCanceled: "已取消请求",
+      requestCanceledBeforeSend: "请求已取消，未发送。",
+      requestsCanceled: (count) => `${count} 个请求已取消。`,
+      allRequestsCleared: "所有请求缓存已清空。",
+      completedRequestsCleared: "已完成请求已删除。",
+      failedRequestsCleared: "失败和已取消请求已删除。",
+      requestFailed: "请求失败",
+      queuedRequestDetail: (method, count, summary, endpoint) => `${method} · ${count} 个新请求 · ${summary} · ${endpoint}`,
     },
     tests: {
       test: "测试",
@@ -547,6 +599,8 @@ const COPY: Record<Language, Copy> = {
       unselectedTitle: "No request selected",
       unselectedSubtitle: "Click a request after generation to view results.",
       cancel: "Cancel",
+      delete: "Delete",
+      deletedRequest: "Deleted request",
       reusePrompt: "Reuse prompt",
       responseJson: "Response JSON",
       download: "Download",
@@ -592,6 +646,11 @@ const COPY: Record<Language, Copy> = {
       keep: "Keep",
       editOriginalPrompt: "Edit strict prompt text",
       editOriginalPromptTooltip: "Edit strict prompt text",
+      promptRequired: "Enter a prompt first.",
+      requestNotCreated: "Request not created",
+      connectionRequired: "Configure the API URL and API key before generating.",
+      requestQueued: "Request queued",
+      submissionSuccess: (count) => `Successfully submitted ${count} request${count === 1 ? "" : "s"}.`,
       generations: "generations",
       responses: "responses",
       completions: "completions",
@@ -642,6 +701,25 @@ const COPY: Record<Language, Copy> = {
       buttonLabel: "Choose",
       deleteButton: "Delete input image",
       tooltip: "Use historical images as input",
+    },
+    runtime: {
+      editRequestMissingImages: "Edit request is missing input images.",
+      missingHistoricalRequest: "No matching historical request was found.",
+      historicalImageExists: (requestTitle, imageIndex) => `${requestTitle} · Image ${imageIndex + 1}`,
+      historicalImageFull: "Historical image limit reached",
+      historicalRequestHasNoImage: "This historical request has no available images.",
+      historicalImageNotFound: "Could not find that historical image.",
+      historicalImageNotEditable: "That historical image cannot be added to edit mode yet.",
+      historicalImageAddedToEdit: (requestTitle, imageIndex) => `${requestTitle} · Image ${imageIndex + 1}`,
+      historicalImageLoadFailed: "Failed to load the historical image.",
+      requestCanceled: "Request canceled",
+      requestCanceledBeforeSend: "Request canceled before sending.",
+      requestsCanceled: (count) => `${count} requests canceled.`,
+      allRequestsCleared: "All request cache cleared.",
+      completedRequestsCleared: "Completed requests deleted.",
+      failedRequestsCleared: "Failed and canceled requests deleted.",
+      requestFailed: "Request failed",
+      queuedRequestDetail: (method, count, summary, endpoint) => `${method} · ${count} new request${count === 1 ? "" : "s"} · ${summary} · ${endpoint}`,
     },
     tests: {
       test: "Test",
