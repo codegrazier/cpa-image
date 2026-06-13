@@ -982,6 +982,29 @@ describe("App", () => {
     expect(within(dialog).getByText(/Failed to fetch/)).toBeInTheDocument();
   });
 
+  test("truncates long HTML response bodies in the result panel", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const longHtml = `<!DOCTYPE html><html><body>${"cloudflare challenge ".repeat(600)}HTML_TAIL_MARKER</body></html>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(longHtml, {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    expect(await within(resultPanel).findByText(/HTTP 502/)).toBeInTheDocument();
+    expect(within(resultPanel).queryByText("HTML_TAIL_MARKER")).not.toBeInTheDocument();
+  });
+
   test("records prompt history, refills prompt, and deletes history rows", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });

@@ -58,6 +58,12 @@ import { getCopy, useI18n, type Language } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
+const REQUEST_ERROR_PREVIEW_LIMIT = 240;
+
+function truncateDisplayText(value: string, limit: number) {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}…`;
+}
 
 function statusVariant(status: string) {
   if (status === "error" || status === "canceled") return "destructive" as const;
@@ -85,8 +91,8 @@ function selectedRequestEmptyText(request: ImageRequestRecord | null, loading = 
   if (!request) return copy.requestCardEmpty.noImage;
   if (request.status === "queued") return copy.requestCardEmpty.queued;
   if (request.status === "running") return copy.requestCardEmpty.running;
-  if (request.status === "canceled") return request.error || copy.requestCardEmpty.canceled;
-  if (request.status === "error") return request.error || copy.requestCardEmpty.error;
+  if (request.status === "canceled") return truncateDisplayText(request.error || copy.requestCardEmpty.canceled, REQUEST_ERROR_PREVIEW_LIMIT);
+  if (request.status === "error") return truncateDisplayText(request.error || copy.requestCardEmpty.error, REQUEST_ERROR_PREVIEW_LIMIT);
   if (loading) return copy.requestCardEmpty.loading;
   if (request.detailsMissing) return copy.requestCardEmpty.restored;
   return copy.requestCardEmpty.missing;
