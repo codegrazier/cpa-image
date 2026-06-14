@@ -970,17 +970,40 @@ describe("App", () => {
   test("keeps response JSON available for failed requests", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
 
     renderApp();
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
 
+    await waitFor(() => expect(toastErrorSpy).toHaveBeenCalledTimes(1));
+    expect(toastErrorSpy).toHaveBeenCalledWith("浏览器阻止了跨域请求，请检查上游代理的 CORS 配置。");
+
     const responseJsonButton = await screen.findByRole("button", { name: /响应 JSON/ });
     await user.click(responseJsonButton);
 
     const dialog = screen.getByRole("dialog", { name: "响应 JSON" });
     expect(within(dialog).getByText(/Failed to fetch/)).toBeInTheDocument();
+  });
+
+  test("shows the cross-origin toast in English after switching languages", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+
+    renderApp();
+    await user.click(screen.getByRole("button", { name: "切换到 English" }));
+    expect(await screen.findByRole("button", { name: "Switch to 中文" })).toBeInTheDocument();
+
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    await waitFor(() => expect(toastErrorSpy).toHaveBeenCalledTimes(1));
+    expect(toastErrorSpy).toHaveBeenCalledWith(
+      "The browser blocked a cross-origin request. Check the upstream proxy CORS settings.",
+    );
   });
 
   test("truncates long HTML response bodies in the result panel and keeps the response JSON raw", async () => {

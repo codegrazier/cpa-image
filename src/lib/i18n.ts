@@ -335,6 +335,7 @@ type Copy = {
     completedRequestsCleared: string;
     failedRequestsCleared: string;
     requestFailed: string;
+    crossOriginRequestFailed: string;
     queuedRequestDetail: (method: string, count: number, summary: string, endpoint: string) => string;
   };
   tests: {
@@ -528,6 +529,7 @@ const COPY: Record<Language, Copy> = {
       completedRequestsCleared: "已完成请求已删除。",
       failedRequestsCleared: "失败和已取消请求已删除。",
       requestFailed: "请求失败",
+      crossOriginRequestFailed: "浏览器阻止了跨域请求，请检查上游代理的 CORS 配置。",
       queuedRequestDetail: (method, count, summary, endpoint) => `${method} · ${count} 个新请求 · ${summary} · ${endpoint}`,
     },
     tests: {
@@ -719,6 +721,7 @@ const COPY: Record<Language, Copy> = {
       completedRequestsCleared: "Completed requests deleted.",
       failedRequestsCleared: "Failed and canceled requests deleted.",
       requestFailed: "Request failed",
+      crossOriginRequestFailed: "The browser blocked a cross-origin request. Check the upstream proxy CORS settings.",
       queuedRequestDetail: (method, count, summary, endpoint) => `${method} · ${count} new request${count === 1 ? "" : "s"} · ${summary} · ${endpoint}`,
     },
     tests: {

@@ -123,6 +123,31 @@ function formatResponseJsonText(value: unknown) {
   return JSON.stringify(sanitizeResponseForDisplay(value), null, 2);
 }
 
+function isCrossOriginFetchFailure(endpoint: string, error: unknown) {
+  const message =
+    error && typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string"
+      ? String((error as { message: string }).message).trim().toLowerCase()
+      : "";
+
+  if (!message) return false;
+  if (
+    ![
+      "failed to fetch",
+      "networkerror when attempting to fetch resource.",
+      "load failed",
+      "fetch failed",
+    ].some((pattern) => message.includes(pattern))
+  ) {
+    return false;
+  }
+
+  try {
+    return new URL(endpoint, window.location.href).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function queueStatusMessage(
   records: ImageRequestRecord[],
   settings: AppSettings,
@@ -787,6 +812,10 @@ export function useImageConsole() {
         retainRequestDetail(requestId);
       } catch (error) {
         const typedError = error as Error & { responseBody?: unknown };
+        const failedRequest = requestRecordsRef.current.find((item) => item.id === requestId);
+        if (failedRequest && isCrossOriginFetchFailure(failedRequest.endpoint, typedError)) {
+          toast.error(copy.runtime.crossOriginRequestFailed);
+        }
         commitRecords((records) =>
           records.map((item) =>
             item.id === requestId
@@ -818,7 +847,7 @@ export function useImageConsole() {
         scheduleQueueRef.current();
       }
     },
-    [commitRecords, retainRequestDetail],
+    [commitRecords, copy, language, retainRequestDetail],
   );
 
   useEffect(() => {
@@ -858,7 +887,7 @@ export function useImageConsole() {
     window.setTimeout(() => {
       scheduleQueueRef.current();
     }, 0);
-  }, [copy]);
+  }, [copy, language]);
 
   useEffect(() => {
     scheduleQueueRef.current = scheduleQueue;
@@ -1166,6 +1195,9 @@ export function useImageConsole() {
       setTestConnectionStatus({ label: copy.tests.connectionNormal, tone: "ok" });
       setStatusMessage({ state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail });
     } catch (error) {
+      if (isCrossOriginFetchFailure(endpoint, error)) {
+        toast.error(copy.runtime.crossOriginRequestFailed);
+      }
       setTestConnectionStatus({ label: copy.tests.connectionFailed, tone: "error" });
       setStatusMessage({ state: copy.tests.connectionFailed, detail: (error as Error).message });
     }
