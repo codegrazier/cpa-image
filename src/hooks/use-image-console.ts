@@ -1200,6 +1200,7 @@ export function useImageConsole() {
         language,
         currentSettings.enableCrossOriginProxy,
       );
+      toast.success(copy.tests.connectionNormal);
       setTestConnectionStatus({ label: copy.tests.connectionNormal, tone: "ok" });
       setStatusMessage({ state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail });
     } catch (error) {

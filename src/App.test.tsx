@@ -418,6 +418,7 @@ describe("App", () => {
 
   test("replaces the test button text with the latest connection result", async () => {
     const user = userEvent.setup();
+    const toastSuccessSpy = vi.spyOn(toast, "success").mockReturnValue("toast-id");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -434,6 +435,7 @@ describe("App", () => {
     const testButton = within(dialog).getByRole("button", { name: "测试" });
     await user.click(testButton);
 
+    expect(toastSuccessSpy).toHaveBeenCalledWith("连接正常");
     expect(await within(dialog).findByRole("button", { name: "连接正常" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
   });
