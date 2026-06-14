@@ -181,6 +181,7 @@ export interface ImageRequestRecord {
   completedAt?: number | null;
   images: GeneratedImage[];
   response: unknown;
+  rawResponse?: unknown;
   error: string;
   controller?: AbortController | null;
   cancelRequested?: boolean;

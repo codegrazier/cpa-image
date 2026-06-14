@@ -567,6 +567,7 @@ describe("App", () => {
         },
       ],
       response: null,
+      rawResponse: null,
       thumbnail: null,
       savedAt: Date.now(),
     });
@@ -982,7 +983,7 @@ describe("App", () => {
     expect(within(dialog).getByText(/Failed to fetch/)).toBeInTheDocument();
   });
 
-  test("truncates long HTML response bodies in the result panel", async () => {
+  test("truncates long HTML response bodies in the result panel and keeps the response JSON raw", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
     const longHtml = `<!DOCTYPE html><html><body>${"cloudflare challenge ".repeat(600)}HTML_TAIL_MARKER</body></html>`;
@@ -1003,6 +1004,12 @@ describe("App", () => {
     const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
     expect(await within(resultPanel).findByText(/HTTP 502/)).toBeInTheDocument();
     expect(within(resultPanel).queryByText("HTML_TAIL_MARKER")).not.toBeInTheDocument();
+
+    const responseJsonButton = await screen.findByRole("button", { name: /响应 JSON/ });
+    await user.click(responseJsonButton);
+
+    const dialog = screen.getByRole("dialog", { name: "响应 JSON" });
+    expect(within(dialog).getByText(/HTML_TAIL_MARKER/)).toBeInTheDocument();
   });
 
   test("records prompt history, refills prompt, and deletes history rows", async () => {

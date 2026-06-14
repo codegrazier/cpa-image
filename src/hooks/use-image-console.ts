@@ -112,6 +112,17 @@ function normalizeSettings(values: AppSettings, defaultStrictPromptText: string)
   };
 }
 
+function formatResponseJsonText(value: unknown) {
+  if (value == null) return "";
+  if (typeof value === "string") {
+    if (value.startsWith("data:image/") && value.length > 240) {
+      return `[image data omitted, ${value.length} chars]`;
+    }
+    return value;
+  }
+  return JSON.stringify(sanitizeResponseForDisplay(value), null, 2);
+}
+
 function queueStatusMessage(
   records: ImageRequestRecord[],
   settings: AppSettings,
@@ -540,12 +551,14 @@ export function useImageConsole() {
         const imageSizeBytes = normalizedDetailImages.reduce((sum, image) => sum + (image.blob?.size || 0), 0);
 
         if (detail && !cancelled) {
+          const responseSource = detail.rawResponse ?? detail.response ?? null;
           void saveRequestDetails(
             [
               {
                 ...selectedRequest,
                 images: normalizedDetailImages,
-                response: detail.response,
+                response: responseSource == null ? null : sanitizeResponseForDisplay(responseSource),
+                rawResponse: responseSource,
                 thumbnail,
               },
             ],
@@ -561,7 +574,11 @@ export function useImageConsole() {
                 ? {
                   ...request,
                   images: normalizedDetailImages.map(prepareImageForRuntime),
-                  response: detail?.response ?? null,
+                  response:
+                    detail == null
+                      ? null
+                      : sanitizeResponseForDisplay(detail.rawResponse ?? detail.response ?? null),
+                  rawResponse: detail?.rawResponse ?? detail?.response ?? null,
                   thumbnail: request.thumbnail || thumbnail || null,
                   imageCount: detailImages.length || request.imageCount || normalizedDetailImages.length || 0,
                   imageSizeBytes: request.imageSizeBytes || imageSizeBytes,
@@ -734,6 +751,7 @@ export function useImageConsole() {
               ...request,
               images: detailImages,
               response: displayResponse,
+              rawResponse: body,
               thumbnail,
             },
           ],
@@ -747,6 +765,7 @@ export function useImageConsole() {
                   ...item,
                   thumbnail: thumbnail || item.thumbnail || null,
                   response: shouldKeepRuntimeDetails ? displayResponse : null,
+                  rawResponse: body,
                   images,
                   imageCount: extractedImages.length,
                   imageSizeBytes: item.imageSizeBytes || imageSizeBytes,
@@ -781,11 +800,17 @@ export function useImageConsole() {
                       : typedError.responseBody == null
                         ? null
                         : sanitizeResponseForDisplay(typedError.responseBody),
+                  rawResponse:
+                    typedError.name === "AbortError"
+                      ? item.rawResponse
+                      : typedError.responseBody == null
+                        ? null
+                        : typedError.responseBody,
                   endedAt: performance.now(),
                   editImages: [],
                 }
               : item,
-            ),
+          ),
         );
       } finally {
         controllersRef.current.delete(requestId);
@@ -918,17 +943,19 @@ export function useImageConsole() {
     if (!selectedRequest) return "";
 
     const responseForDisplay =
-      selectedRequest.response != null
-        ? selectedRequest.response
-        : selectedRequest.status === "error"
-          ? {
-              error: selectedRequest.error || copy.runtime.requestFailed,
-              status: selectedRequest.status,
-            }
-          : null;
+      selectedRequest.rawResponse != null
+        ? selectedRequest.rawResponse
+        : selectedRequest.response != null
+          ? selectedRequest.response
+          : selectedRequest.status === "error"
+            ? {
+                error: selectedRequest.error || copy.runtime.requestFailed,
+                status: selectedRequest.status,
+              }
+            : null;
 
     if (responseForDisplay == null) return "";
-    return JSON.stringify(sanitizeResponseForDisplay(responseForDisplay), null, 2);
+    return formatResponseJsonText(responseForDisplay);
   }, [selectedRequest]);
   const prompt = promptByMode[mode];
 

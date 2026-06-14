@@ -33,6 +33,7 @@ interface RequestDetailEntry {
   id: string;
   images: GeneratedImage[];
   response: unknown;
+  rawResponse?: unknown;
   thumbnail?: GeneratedImage | null;
   savedAt: number;
 }
@@ -337,12 +338,13 @@ function requestDetailEntryFromRecord(request: ImageRequestRecord): RequestDetai
   }
 
   if (hasRuntimeOnlyImage) return null;
-  if (!images.length && request.response == null) return null;
+  if (!images.length && request.response == null && request.rawResponse == null) return null;
 
   return {
     id: request.id,
     images,
     response: request.response ?? null,
+    rawResponse: request.rawResponse ?? request.response ?? null,
     thumbnail: request.thumbnail ? prepareImageForDetailCache(request.thumbnail) : null,
     savedAt: Date.now(),
   };
@@ -401,6 +403,7 @@ export async function loadRequestDetails(id: string) {
     return {
       images: Array.isArray(detail.images) ? detail.images : [],
       response: detail.response ?? null,
+      rawResponse: detail.rawResponse ?? detail.response ?? null,
       thumbnail: detail.thumbnail ?? null,
       savedAt: detail.savedAt,
     };
