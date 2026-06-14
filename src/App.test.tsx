@@ -65,7 +65,7 @@ function storeSettings(settings: Partial<AppSettings>) {
     JSON.stringify({
       baseUrl: "http://localhost:8317/v1",
       model: "gpt-image-2",
-      llmModel: "gpt-5.5",
+      llmModel: "gpt-5.4-mini",
       rememberKey: false,
       enableCrossOriginProxy: false,
       apiKey: "test-key",
@@ -119,9 +119,9 @@ describe("App", () => {
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/images\/generations/)).toBeInTheDocument();
     expect(screen.getByText(/edits \(gpt-image-2\)/)).toBeInTheDocument();
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/images\/edits/)).toBeInTheDocument();
-    expect(screen.getByText(/responses \(gpt-5.5\)/)).toBeInTheDocument();
+    expect(screen.getByText(/responses \(gpt-5.4-mini\)/)).toBeInTheDocument();
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/responses/)).toBeInTheDocument();
-    expect(screen.getByText(/completions \(gpt-5.5\)/)).toBeInTheDocument();
+    expect(screen.getByText(/completions \(gpt-5.4-mini\)/)).toBeInTheDocument();
     expect(screen.getByText(/http:\/\/localhost:8317\/v1\/chat\/completions/)).toBeInTheDocument();
   });
 
@@ -1120,7 +1120,7 @@ describe("App", () => {
     expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8317/v1/responses", expect.objectContaining({ method: "POST" }));
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.model).toBe("gpt-5.5");
+    expect(body.model).toBe("gpt-5.4-mini");
     expect(body.tools[0].type).toBe("image_generation");
   });
 
@@ -1251,7 +1251,7 @@ describe("App", () => {
       expect.objectContaining({ method: "POST" }),
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.model).toBe("gpt-5.5");
+    expect(body.model).toBe("gpt-5.4-mini");
     expect(body.messages[0].role).toBe("user");
     expect(body.messages[0].content).toMatch(/原始 Prompt:\nglass jellyfish/);
     expect(body.tools[0].type).toBe("image_generation");

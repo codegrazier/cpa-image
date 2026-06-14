@@ -205,7 +205,7 @@ export const DEFAULTS: AppSettings = {
   rememberKey: false,
   enableCrossOriginProxy: false,
   model: "gpt-image-2",
-  llmModel: "gpt-5.5",
+  llmModel: "gpt-5.4-mini",
   strictPromptText: "",
   strictPrompt: true,
   requestConcurrency: 2,

@@ -193,7 +193,7 @@ describe("image console logic", () => {
     ).toThrow(/最多选择 5 张图片/);
   });
 
-  test("builds responses image_generation payload with gpt-5.5", () => {
+  test("builds responses image_generation payload with gpt-5.4-mini", () => {
     expect(
       buildResponsesImagePayload({
         prompt: "glass jellyfish",
@@ -205,7 +205,7 @@ describe("image console logic", () => {
         outputFormat: "webp",
       }),
     ).toEqual({
-      model: "gpt-5.5",
+      model: "gpt-5.4-mini",
       input: "glass jellyfish",
       tools: [
         {
@@ -351,7 +351,7 @@ describe("image console logic", () => {
     const requests = buildResponsesImageRequests(payload, 3);
 
     expect(requests).toHaveLength(3);
-    expect(requests[0].model).toBe("gpt-5.5");
+    expect(requests[0].model).toBe("gpt-5.4-mini");
     expect(requests[0].tools?.[0].type).toBe("image_generation");
     expect(requests[0].tools?.[0]).not.toBe(requests[1].tools?.[0]);
   });
@@ -368,7 +368,7 @@ describe("image console logic", () => {
     const requests = buildChatCompletionsImageRequests(payload, 3);
 
     expect(requests).toHaveLength(3);
-    expect(requests[0].model).toBe("gpt-5.5");
+    expect(requests[0].model).toBe("gpt-5.4-mini");
     expect(requests[0].messages?.[0].content).toBe("glass jellyfish");
     expect(requests[0].tools?.[0].type).toBe("image_generation");
     expect(requests[0].messages?.[0]).not.toBe(requests[1].messages?.[0]);
