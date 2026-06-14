@@ -113,8 +113,13 @@ export async function postImageEdit(
   return body;
 }
 
-export async function fetchModels(baseUrl: string, apiKey: string, language: "zh" | "en" = "zh") {
-  const endpoint = normalizeModelsEndpoint(baseUrl);
+export async function fetchModels(
+  baseUrl: string,
+  apiKey: string,
+  language: "zh" | "en" = "zh",
+  enableCrossOriginProxy = false,
+) {
+  const endpoint = normalizeModelsEndpoint(baseUrl, enableCrossOriginProxy);
   const response = await fetch(endpoint, {
     method: "GET",
     headers: authHeaders(apiKey),

@@ -56,6 +56,7 @@ export interface AppSettings {
   baseUrl: string;
   apiKey: string;
   rememberKey: boolean;
+  enableCrossOriginProxy: boolean;
   model: string;
   llmModel: string;
   strictPromptText: string;
@@ -74,6 +75,7 @@ export type SharedSettings = Pick<
   | "baseUrl"
   | "apiKey"
   | "rememberKey"
+  | "enableCrossOriginProxy"
   | "model"
   | "llmModel"
   | "strictPromptText"
@@ -201,6 +203,7 @@ export const DEFAULTS: AppSettings = {
   baseUrl: "http://localhost:8317/v1",
   apiKey: "",
   rememberKey: false,
+  enableCrossOriginProxy: false,
   model: "gpt-image-2",
   llmModel: "gpt-5.5",
   strictPromptText: "",
@@ -218,6 +221,7 @@ export const DEFAULT_SHARED_SETTINGS: SharedSettings = {
   baseUrl: DEFAULTS.baseUrl,
   apiKey: DEFAULTS.apiKey,
   rememberKey: DEFAULTS.rememberKey,
+  enableCrossOriginProxy: DEFAULTS.enableCrossOriginProxy,
   model: DEFAULTS.model,
   llmModel: DEFAULTS.llmModel,
   strictPromptText: DEFAULTS.strictPromptText,
@@ -309,6 +313,7 @@ export function normalizeSharedSettings(values: unknown = {}): SharedSettings {
     baseUrl: String(source.baseUrl || DEFAULTS.baseUrl).trim() || DEFAULTS.baseUrl,
     apiKey: String(source.apiKey || "").trim(),
     rememberKey: Boolean(source.rememberKey),
+    enableCrossOriginProxy: Boolean(source.enableCrossOriginProxy),
     model: String(source.model || DEFAULTS.model).trim() || DEFAULTS.model,
     llmModel: String(source.llmModel || DEFAULTS.llmModel).trim() || DEFAULTS.llmModel,
     strictPromptText: normalizeStrictPromptText(source.strictPromptText),
@@ -410,6 +415,13 @@ function trimTrailingSlash(value: unknown) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+export const CROSS_ORIGIN_PROXY_PREFIX = "https://proxy.cpa-image.site/?targetOrigin=";
+
+function applyCrossOriginProxy(endpoint: string, enabled: boolean) {
+  if (!enabled) return endpoint;
+  return `${CROSS_ORIGIN_PROXY_PREFIX}${encodeURIComponent(endpoint)}`;
+}
+
 function routeFromBaseUrl(baseUrl: string, route: string) {
   const input = trimTrailingSlash(baseUrl || DEFAULTS.baseUrl);
   const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
@@ -426,24 +438,24 @@ function routeFromBaseUrl(baseUrl: string, route: string) {
   return `${input}/v1${routeWithoutV1}`;
 }
 
-export function normalizeImageEndpoint(baseUrl: string) {
-  return routeFromBaseUrl(baseUrl, "/v1/images/generations");
+export function normalizeImageEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
+  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/images/generations"), enableCrossOriginProxy);
 }
 
-export function normalizeResponsesEndpoint(baseUrl: string) {
-  return routeFromBaseUrl(baseUrl, "/v1/responses");
+export function normalizeResponsesEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
+  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/responses"), enableCrossOriginProxy);
 }
 
-export function normalizeImageEditsEndpoint(baseUrl: string) {
-  return routeFromBaseUrl(baseUrl, "/v1/images/edits");
+export function normalizeImageEditsEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
+  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/images/edits"), enableCrossOriginProxy);
 }
 
-export function normalizeChatCompletionsEndpoint(baseUrl: string) {
-  return routeFromBaseUrl(baseUrl, "/v1/chat/completions");
+export function normalizeChatCompletionsEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
+  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/chat/completions"), enableCrossOriginProxy);
 }
 
-export function normalizeModelsEndpoint(baseUrl: string) {
-  return routeFromBaseUrl(baseUrl, "/v1/models");
+export function normalizeModelsEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
+  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/models"), enableCrossOriginProxy);
 }
 
 export function buildStrictPromptPolicy(prompt: string, strictPromptText: unknown = DEFAULT_STRICT_PROMPT_TEXT) {

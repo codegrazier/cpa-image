@@ -1268,16 +1268,28 @@ function SettingsDialog(
               />
             </Field>
           </div>
-          <Field orientation="horizontal" className="!items-center">
-            <Checkbox
-              id="rememberKey"
-              checked={settings.rememberKey}
-              onCheckedChange={(checked) => updateSettings("rememberKey", checked === true)}
-            />
-            <FieldContent>
-              <FieldLabel htmlFor="rememberKey">{copy.settings.rememberKey}</FieldLabel>
-            </FieldContent>
-          </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field orientation="horizontal" className="!items-center">
+              <Checkbox
+                id="rememberKey"
+                checked={settings.rememberKey}
+                onCheckedChange={(checked) => updateSettings("rememberKey", checked === true)}
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="rememberKey">{copy.settings.rememberKey}</FieldLabel>
+              </FieldContent>
+            </Field>
+            <Field orientation="horizontal" className="!items-center">
+              <Checkbox
+                id="enableCrossOriginProxy"
+                checked={settings.enableCrossOriginProxy}
+                onCheckedChange={(checked) => updateSettings("enableCrossOriginProxy", checked === true)}
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="enableCrossOriginProxy">{copy.settings.crossOriginProxy}</FieldLabel>
+              </FieldContent>
+            </Field>
+          </div>
           <FieldSet>
             <FieldTitle>{copy.settings.endpointPreview}</FieldTitle>
             <pre className="min-w-0 whitespace-pre-wrap break-all rounded-md border bg-muted p-3 text-xs leading-relaxed text-muted-foreground">

@@ -102,6 +102,7 @@ function normalizeSettings(values: AppSettings, defaultStrictPromptText: string)
     model: String(values.model || DEFAULTS.model).trim(),
     llmModel: String(values.llmModel || DEFAULTS.llmModel).trim(),
     rememberKey: Boolean(values.rememberKey),
+    enableCrossOriginProxy: Boolean(values.enableCrossOriginProxy),
     strictPromptText: normalizedStrictPromptText,
     strictPrompt: values.strictPrompt ?? DEFAULTS.strictPrompt,
     requestConcurrency: normalizeRequestConcurrency(values.requestConcurrency),
@@ -887,7 +888,7 @@ export function useImageConsole() {
     window.setTimeout(() => {
       scheduleQueueRef.current();
     }, 0);
-  }, [copy, language]);
+  }, [copy]);
 
   useEffect(() => {
     scheduleQueueRef.current = scheduleQueue;
@@ -960,13 +961,14 @@ export function useImageConsole() {
     const baseUrl = settings.baseUrl || DEFAULTS.baseUrl;
     const imageModel = String(settings.model || DEFAULTS.model).trim();
     const llmModel = String(settings.llmModel || DEFAULTS.llmModel).trim();
+    const enableCrossOriginProxy = Boolean(settings.enableCrossOriginProxy);
     return [
-      `generations (${imageModel})\n${normalizeImageEndpoint(baseUrl)}`,
-      `edits (${imageModel})\n${normalizeImageEditsEndpoint(baseUrl)}`,
-      `responses (${llmModel})\n${normalizeResponsesEndpoint(baseUrl)}`,
-      `completions (${llmModel})\n${normalizeChatCompletionsEndpoint(baseUrl)}`,
+      `generations (${imageModel})\n${normalizeImageEndpoint(baseUrl, enableCrossOriginProxy)}`,
+      `edits (${imageModel})\n${normalizeImageEditsEndpoint(baseUrl, enableCrossOriginProxy)}`,
+      `responses (${llmModel})\n${normalizeResponsesEndpoint(baseUrl, enableCrossOriginProxy)}`,
+      `completions (${llmModel})\n${normalizeChatCompletionsEndpoint(baseUrl, enableCrossOriginProxy)}`,
     ].join("\n\n");
-  }, [settings.baseUrl, settings.llmModel, settings.model]);
+  }, [settings.baseUrl, settings.enableCrossOriginProxy, settings.llmModel, settings.model]);
 
   const selectedRequestJson = useMemo(() => {
     if (!selectedRequest) return "";
@@ -1124,6 +1126,7 @@ export function useImageConsole() {
         key === "baseUrl" ||
         key === "apiKey" ||
         key === "rememberKey" ||
+        key === "enableCrossOriginProxy" ||
         key === "model" ||
         key === "llmModel" ||
         key === "strictPromptText" ||
@@ -1186,12 +1189,17 @@ export function useImageConsole() {
 
   const testConnection = useCallback(async () => {
     const currentSettings = settingsRef.current;
-    const endpoint = normalizeModelsEndpoint(currentSettings.baseUrl);
+    const endpoint = normalizeModelsEndpoint(currentSettings.baseUrl, currentSettings.enableCrossOriginProxy);
     setTestConnectionStatus({ label: copy.tests.connectionTesting, tone: "busy" });
     setStatusMessage({ state: copy.tests.connectionTesting, detail: endpoint });
 
     try {
-      await fetchModels(currentSettings.baseUrl, currentSettings.apiKey, language);
+      await fetchModels(
+        currentSettings.baseUrl,
+        currentSettings.apiKey,
+        language,
+        currentSettings.enableCrossOriginProxy,
+      );
       setTestConnectionStatus({ label: copy.tests.connectionNormal, tone: "ok" });
       setStatusMessage({ state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail });
     } catch (error) {
@@ -1201,7 +1209,7 @@ export function useImageConsole() {
       setTestConnectionStatus({ label: copy.tests.connectionFailed, tone: "error" });
       setStatusMessage({ state: copy.tests.connectionFailed, detail: (error as Error).message });
     }
-  }, [copy]);
+  }, [copy, language]);
 
   const enqueueGeneration = useCallback(
     (generationMode: "images" | "responses" | "completions") => {
@@ -1224,22 +1232,23 @@ export function useImageConsole() {
       let requestPayloads;
       let endpoint: string;
       let method: GenerationMethod;
+      const enableCrossOriginProxy = currentSettings.enableCrossOriginProxy;
 
       try {
         if (generationMode === "completions") {
           const payload = buildChatCompletionsImagePayload(values, language);
           requestPayloads = buildChatCompletionsImageRequests(payload, values.n);
-          endpoint = normalizeChatCompletionsEndpoint(values.baseUrl);
+          endpoint = normalizeChatCompletionsEndpoint(values.baseUrl, enableCrossOriginProxy);
           method = "completions";
         } else if (generationMode === "responses") {
           const payload = buildResponsesImagePayload(values, language);
           requestPayloads = buildResponsesImageRequests(payload, values.n);
-          endpoint = normalizeResponsesEndpoint(values.baseUrl);
+          endpoint = normalizeResponsesEndpoint(values.baseUrl, enableCrossOriginProxy);
           method = "image_generation";
         } else {
           const payload = buildPayload(values, language);
           requestPayloads = buildGenerationRequests(payload);
-          endpoint = normalizeImageEndpoint(values.baseUrl);
+          endpoint = normalizeImageEndpoint(values.baseUrl, enableCrossOriginProxy);
           method = "gpt-image-2";
         }
       } catch (error) {
@@ -1318,12 +1327,13 @@ export function useImageConsole() {
     let requestPayloads;
     let endpoint: string;
     let method: GenerationMethod;
+    const enableCrossOriginProxy = currentSettings.enableCrossOriginProxy;
     const runtimeImages = editImages.map((image) => ({ ...image }));
 
     try {
       const payload = buildEditImagePayload(values, runtimeImages, language);
       requestPayloads = buildEditImageRequests(payload, values.n);
-      endpoint = normalizeImageEditsEndpoint(values.baseUrl);
+      endpoint = normalizeImageEditsEndpoint(values.baseUrl, enableCrossOriginProxy);
       method = "edit";
     } catch (error) {
       const message = (error as Error).message;

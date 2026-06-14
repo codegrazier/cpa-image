@@ -12,6 +12,7 @@ import {
   STORAGE_KEY,
   STRICT_PROMPT_FOOTER,
   STRICT_PROMPT_HEADER,
+  normalizeImageEndpoint,
   type AppSettings,
   type ImageRequestRecord,
 } from "@/lib/image-console";
@@ -66,6 +67,7 @@ function storeSettings(settings: Partial<AppSettings>) {
       model: "gpt-image-2",
       llmModel: "gpt-5.5",
       rememberKey: false,
+      enableCrossOriginProxy: false,
       apiKey: "test-key",
       strictPrompt: true,
       requestConcurrency: 2,
@@ -269,6 +271,23 @@ describe("App", () => {
     expect(screen.getByLabelText("生图模型")).toHaveValue("gpt-image-3");
     expect(screen.getByLabelText("对话模型")).toHaveValue("gpt-5.6");
     expect(screen.getByDisplayValue("proxy-key")).toBeInTheDocument();
+  });
+
+  test("shows, previews, and persists the cross-origin proxy setting", async () => {
+    const user = userEvent.setup();
+    storeSettings({ enableCrossOriginProxy: true });
+
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: /配置/ }));
+
+    const dialog = screen.getByRole("dialog", { name: "连接" });
+    expect(within(dialog).getByLabelText("启用跨域请求代理")).toBeChecked();
+    expect(within(dialog).getByText(/proxy\.cpa-image\.site/)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(normalizeImageEndpoint("http://localhost:8317/v1", true));
+
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "连接" })).not.toBeInTheDocument());
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}")).toMatchObject({ enableCrossOriginProxy: true });
   });
 
   test("keeps strict prompt head and tail fixed while editing the body", async () => {

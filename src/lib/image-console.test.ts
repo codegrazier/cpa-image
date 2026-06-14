@@ -96,6 +96,24 @@ describe("image console logic", () => {
     );
   });
 
+  test("wraps endpoints with the cross-origin proxy when enabled", () => {
+    expect(normalizeImageEndpoint("http://localhost:8317", true)).toBe(
+      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/images/generations")}`,
+    );
+    expect(normalizeImageEditsEndpoint("http://localhost:8317/v1", true)).toBe(
+      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/images/edits")}`,
+    );
+    expect(normalizeResponsesEndpoint("http://localhost:8317", true)).toBe(
+      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/responses")}`,
+    );
+    expect(normalizeChatCompletionsEndpoint("http://localhost:8317/v1", true)).toBe(
+      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/chat/completions")}`,
+    );
+    expect(normalizeModelsEndpoint("http://localhost:8317", true)).toBe(
+      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/models")}`,
+    );
+  });
+
   test("uses configurable image model for base64 payloads", () => {
     expect(
       buildPayload({

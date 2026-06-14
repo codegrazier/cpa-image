@@ -141,6 +141,7 @@ export function saveSettings(values: StoredConsoleSettings) {
     model: normalized.shared.model,
     llmModel: normalized.shared.llmModel,
     rememberKey: normalized.shared.rememberKey,
+    enableCrossOriginProxy: normalized.shared.enableCrossOriginProxy,
     requestConcurrency: normalized.shared.requestConcurrency,
     requestIntervalSeconds: normalized.shared.requestIntervalSeconds,
     strictPromptText: normalized.shared.strictPromptText,

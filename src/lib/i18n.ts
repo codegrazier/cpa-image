@@ -294,6 +294,7 @@ type Copy = {
     apiUrl: string;
     apiKey: string;
     rememberKey: string;
+    crossOriginProxy: string;
     generationModel: string;
     llmModel: string;
     concurrency: string;
@@ -472,6 +473,7 @@ const COPY: Record<Language, Copy> = {
       apiUrl: "API URL",
       apiKey: "API Key",
       rememberKey: "在本浏览器记住 API Key",
+      crossOriginProxy: "启用跨域请求代理",
       generationModel: "生图模型",
       llmModel: "对话模型",
       concurrency: "并发",
@@ -664,6 +666,7 @@ const COPY: Record<Language, Copy> = {
       apiUrl: "API URL",
       apiKey: "API key",
       rememberKey: "Remember API key in this browser",
+      crossOriginProxy: "Enable cross-origin request proxy",
       generationModel: "Image model",
       llmModel: "Chat model",
       concurrency: "Concurrency",
