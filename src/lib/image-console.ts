@@ -1485,31 +1485,61 @@ export function extractImages(response: unknown, fallbackFormat = "png") {
       return;
     }
 
+    const outputFormat = isRecord(value) && typeof value.output_format === "string" ? value.output_format : fallbackFormat;
+    let preferredBase64Image: { key: string; image: GeneratedImage } | null = null;
+    let preferredUrlImage: { key: string; image: GeneratedImage } | null = null;
+    let hasDirectBase64 = false;
+
+    for (const [key, child] of Object.entries(value)) {
+      if (typeof child !== "string") continue;
+      const text = child.trim();
+
+      if (base64Keys.has(key) && looksLikeBase64Image(text)) {
+        const src = base64ToDataUrl(text, outputFormat);
+        if (!preferredBase64Image) {
+          preferredBase64Image = {
+            key,
+            image: {
+              src,
+              kind: "base64",
+              path: `${path}.${key}`,
+              mimeType: dataUrlMimeType(src, outputFormat),
+            },
+          };
+        }
+        hasDirectBase64 = true;
+        continue;
+      }
+
+      if (!preferredUrlImage && urlKeys.has(key) && (text.startsWith("http://") || text.startsWith("https://"))) {
+        preferredUrlImage = {
+          key,
+          image: {
+            src: text,
+            kind: "url",
+            path: `${path}.${key}`,
+          },
+        };
+      }
+    }
+
     for (const [key, child] of Object.entries(value)) {
       const childPath = `${path}.${key}`;
       if (typeof child === "string") {
-        const text = child.trim();
-        const outputFormat = isRecord(value) && typeof value.output_format === "string" ? value.output_format : fallbackFormat;
-
-        if (base64Keys.has(key) && looksLikeBase64Image(text)) {
-          const src = base64ToDataUrl(text, outputFormat);
-          addImage({
-            src,
-            kind: "base64",
-            path: childPath,
-            mimeType: dataUrlMimeType(src, outputFormat),
-          });
+        if (preferredBase64Image && key === preferredBase64Image.key) {
+          addImage(preferredBase64Image.image);
           continue;
         }
 
-        if (urlKeys.has(key) && (text.startsWith("http://") || text.startsWith("https://"))) {
-          addImage({
-            src: text,
-            kind: "url",
-            path: childPath,
-          });
+        if (hasDirectBase64 && urlKeys.has(key)) {
           continue;
         }
+
+        if (!hasDirectBase64 && preferredUrlImage && key === preferredUrlImage.key) {
+          addImage(preferredUrlImage.image);
+        }
+
+        continue;
       }
 
       walk(child, childPath);

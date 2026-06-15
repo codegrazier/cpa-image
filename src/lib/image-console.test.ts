@@ -813,7 +813,7 @@ describe("image console logic", () => {
   test("extracts base64 and URL images from common response shapes", () => {
     const response = {
       data: [
-        { b64_json: PNG_BASE64 },
+        { b64_json: PNG_BASE64, url: "https://cdn.example.com/ignored.png" },
         { url: "https://cdn.example.com/image.png" },
       ],
       output: [{ type: "image_generation.completed", result: "UklGR" + "A".repeat(100), output_format: "webp" }],
@@ -823,8 +823,10 @@ describe("image console logic", () => {
 
     expect(images).toHaveLength(3);
     expect(images[0].src.startsWith("data:image/png;base64,")).toBe(true);
+    expect(images[0].path).toBe("$.data[0].b64_json");
     expect(images[1].src).toBe("https://cdn.example.com/image.png");
     expect(images[2].src.startsWith("data:image/webp;base64,")).toBe(true);
+    expect(images.some((image) => image.path === "$.data[0].url")).toBe(false);
   });
 
   test("prepares base64 images as blobs for cache and object URLs for runtime", () => {
