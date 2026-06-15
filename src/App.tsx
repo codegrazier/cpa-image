@@ -54,6 +54,7 @@ import {
   QUALITY_OPTIONS,
   formatCompletionTime,
   generationMethodDisplayName,
+  imageDownloadName,
   isDefaultStrictPromptText,
   normalizeStrictPromptText,
   revisedPromptForResponse,
@@ -97,6 +98,22 @@ function sizeOptionDisplayLabel(option: string) {
 function truncateDisplayText(value: string, limit: number) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}…`;
+}
+
+function downloadRequestImages(request: Pick<ImageRequestRecord, "images" | "payload" | "title" | "method">) {
+  const images = request.images || [];
+  for (const [index, image] of images.entries()) {
+    if (!image?.src) continue;
+
+    const anchor = document.createElement("a");
+    anchor.href = image.src;
+    anchor.download = imageDownloadName(request, index);
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
 }
 
 function statusVariant(status: string) {
@@ -644,7 +661,6 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
     selectedRequestDetailLoadingId,
     statusMessage,
     selectedRequestJson,
-    selectedRequestDownload,
     setJsonDialogOpen,
     reusePrompt,
   } = consoleState;
@@ -685,14 +701,10 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!selectedRequestDownload}
+                disabled={!selectedRequest?.images?.length}
                 onClick={() => {
-                  if (!selectedRequestDownload) return;
-                  const anchor = document.createElement("a");
-                  anchor.href = selectedRequestDownload.href;
-                  anchor.download = selectedRequestDownload.download;
-                  anchor.rel = "noopener";
-                  anchor.click();
+                  if (!selectedRequest?.images?.length) return;
+                  downloadRequestImages(selectedRequest);
                 }}
               >
                 <DownloadIcon data-icon="inline-start" />

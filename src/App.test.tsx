@@ -917,6 +917,34 @@ describe("App", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe("gpt-image-custom");
   });
 
+  test("downloads every image from multi-image generation responses", async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }, { b64_json: WEBP_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(await screen.findByAltText("Generated image 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "下载" }));
+
+    expect(clickSpy).toHaveBeenCalledTimes(2);
+    const downloads = clickSpy.mock.instances.map((anchor) => (anchor as HTMLAnchorElement).download);
+    expect(downloads).toHaveLength(2);
+    expect(downloads[0]).toMatch(/-1\.png$/);
+    expect(downloads[1]).toMatch(/-2\.png$/);
+  });
+
   test("keeps the selected request unchanged after starting another generation", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
