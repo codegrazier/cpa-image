@@ -290,6 +290,38 @@ describe("App", () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}")).toMatchObject({ enableCrossOriginProxy: true });
   });
 
+  test("confirms before enabling the cross-origin proxy setting", async () => {
+    const user = userEvent.setup();
+
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: /配置/ }));
+
+    const settingsDialog = screen.getByRole("dialog", { name: "连接" });
+    const proxyCheckbox = within(settingsDialog).getByLabelText("启用跨域请求代理");
+    expect(proxyCheckbox).not.toBeChecked();
+
+    await user.click(proxyCheckbox);
+
+    const confirmDialog = await screen.findByRole("alertdialog", { name: "启用跨域请求代理？" });
+    expect(
+      within(confirmDialog).getByText(
+        "启用后，API 请求会先通过代理服务转发，用于绕过浏览器跨域限制。代理服务可能会接触到您的 API URL、请求头、Prompt、图片等请求内容。请仅在您信任此代理服务时启用。",
+      ),
+    ).toBeInTheDocument();
+    expect(within(settingsDialog).getByLabelText("启用跨域请求代理")).not.toBeChecked();
+
+    await user.click(within(confirmDialog).getByRole("button", { name: "取消" }));
+    expect(within(settingsDialog).getByLabelText("启用跨域请求代理")).not.toBeChecked();
+
+    await user.click(within(settingsDialog).getByLabelText("启用跨域请求代理"));
+    await user.click(within(await screen.findByRole("alertdialog", { name: "启用跨域请求代理？" })).getByRole("button", { name: "启用" }));
+
+    await waitFor(() => expect(within(settingsDialog).getByLabelText("启用跨域请求代理")).toBeChecked());
+    await user.click(within(settingsDialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "连接" })).not.toBeInTheDocument());
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}")).toMatchObject({ enableCrossOriginProxy: true });
+  });
+
   test("keeps strict prompt head and tail fixed while editing the body", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue(

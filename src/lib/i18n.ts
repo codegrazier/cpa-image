@@ -295,6 +295,11 @@ type Copy = {
     apiKey: string;
     rememberKey: string;
     crossOriginProxy: string;
+    crossOriginProxyConfirm: {
+      title: string;
+      description: string;
+      confirm: string;
+    };
     generationModel: string;
     llmModel: string;
     concurrency: string;
@@ -474,6 +479,12 @@ const COPY: Record<Language, Copy> = {
       apiKey: "API Key",
       rememberKey: "在本浏览器记住 API Key",
       crossOriginProxy: "启用跨域请求代理",
+      crossOriginProxyConfirm: {
+        title: "启用跨域请求代理？",
+        description:
+          "启用后，API 请求会先通过代理服务转发，用于绕过浏览器跨域限制。代理服务可能会接触到您的 API URL、请求头、Prompt、图片等请求内容。请仅在您信任此代理服务时启用。",
+        confirm: "启用",
+      },
       generationModel: "生图模型",
       llmModel: "对话模型",
       concurrency: "并发",
@@ -667,6 +678,12 @@ const COPY: Record<Language, Copy> = {
       apiKey: "API key",
       rememberKey: "Remember API key in this browser",
       crossOriginProxy: "Enable cross-origin request proxy",
+      crossOriginProxyConfirm: {
+        title: "Enable cross-origin request proxy?",
+        description:
+          "Once enabled, API requests will be forwarded through a proxy service to bypass browser cross-origin restrictions. The proxy service may access your API URL, request headers, prompt, images, and other request content. Only enable this if you trust the proxy service.",
+        confirm: "Enable",
+      },
       generationModel: "Image model",
       llmModel: "Chat model",
       concurrency: "Concurrency",
