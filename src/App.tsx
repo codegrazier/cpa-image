@@ -14,7 +14,10 @@ import {
   PencilIcon,
   PlayIcon,
   RotateCcwIcon,
+  RectangleHorizontalIcon,
+  RectangleVerticalIcon,
   SettingsIcon,
+  SquareIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
@@ -29,7 +32,16 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldSet, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -40,7 +52,6 @@ import {
   MAX_EDIT_INPUT_IMAGES,
   MAX_PROMPT_HISTORY,
   QUALITY_OPTIONS,
-  SIZE_OPTIONS,
   formatCompletionTime,
   generationMethodDisplayName,
   isDefaultStrictPromptText,
@@ -59,6 +70,29 @@ import { cn } from "@/lib/utils";
 
 const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
 const REQUEST_ERROR_PREVIEW_LIMIT = 240;
+const SIZE_OPTION_DISPLAY_LABELS: Record<string, string> = {
+  "2048x2048": "2048x2048 (2K)",
+  "2048x1152": "2048x1152 (2K)",
+  "1152x2048": "1152x2048 (2K)",
+  "3840x2160": "3840x2160 (4K)",
+  "2160x3840": "2160x3840 (4K)",
+};
+const SIZE_GROUPS = {
+  zh: [
+    { label: "方形", icon: SquareIcon, options: ["1024x1024", "2048x2048"] },
+    { label: "横屏", icon: RectangleHorizontalIcon, options: ["1536x1024", "2048x1152", "3840x2160"] },
+    { label: "竖屏", icon: RectangleVerticalIcon, options: ["1024x1536", "1152x2048", "2160x3840"] },
+  ],
+  en: [
+    { label: "Square", icon: SquareIcon, options: ["1024x1024", "2048x2048"] },
+    { label: "Landscape", icon: RectangleHorizontalIcon, options: ["1536x1024", "2048x1152", "3840x2160"] },
+    { label: "Portrait", icon: RectangleVerticalIcon, options: ["1024x1536", "1152x2048", "2160x3840"] },
+  ],
+} as const;
+
+function sizeOptionDisplayLabel(option: string) {
+  return SIZE_OPTION_DISPLAY_LABELS[option] || option;
+}
 
 function truncateDisplayText(value: string, limit: number) {
   if (value.length <= limit) return value;
@@ -166,6 +200,39 @@ function OptionSelect({
               </SelectItem>
             ))}
           </SelectGroup>
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
+function SizeSelect({ value, onValueChange }: { value: string; onValueChange: (value: string) => void }) {
+  const { copy, language } = useI18n();
+  const groups = SIZE_GROUPS[language];
+
+  return (
+    <Field>
+      <FieldLabel>{copy.generator.size}</FieldLabel>
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="auto">auto</SelectItem>
+          <SelectSeparator />
+          {groups.map((group) => (
+            <SelectGroup key={group.label}>
+              <SelectLabel className="flex items-center gap-1.5">
+                <group.icon aria-hidden="true" className="size-3.5 shrink-0" />
+                <span>{group.label}</span>
+              </SelectLabel>
+              {group.options.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {sizeOptionDisplayLabel(option)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          ))}
         </SelectContent>
       </Select>
     </Field>
@@ -1065,12 +1132,7 @@ function GeneratorPanel({
       </FieldGroup>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <OptionSelect
-          label={copy.generator.size}
-          value={String(settings.size)}
-          options={SIZE_OPTIONS}
-          onValueChange={(value) => updateSettings("size", value as AppSettings["size"])}
-        />
+        <SizeSelect value={String(settings.size)} onValueChange={(value) => updateSettings("size", value as AppSettings["size"])} />
         <OptionSelect
           label={copy.generator.quality}
           value={String(settings.quality)}

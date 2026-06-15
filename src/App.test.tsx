@@ -706,22 +706,26 @@ describe("App", () => {
     expect(generationSize).toHaveTextContent("auto");
 
     await user.click(generationSize);
-    await user.click(await screen.findByRole("option", { name: "1024x1024" }));
-    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("1024x1024");
+    expect(await screen.findByText("方形")).toBeInTheDocument();
+    expect(screen.getByText("横屏")).toBeInTheDocument();
+    expect(screen.getByText("竖屏")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "auto" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "1152x2048 (2K)" }));
+    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("1152x2048 (2K)");
 
     await user.click(screen.getByRole("tab", { name: "编辑" }));
     const editSize = screen.getAllByRole("combobox")[1];
     expect(editSize).toHaveTextContent("auto");
 
     await user.click(editSize);
-    await user.click(await screen.findByRole("option", { name: "2048x2048" }));
-    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("2048x2048");
+    await user.click(await screen.findByRole("option", { name: "2048x2048 (2K)" }));
+    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("2048x2048 (2K)");
 
     await user.click(screen.getByRole("tab", { name: "生图" }));
-    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("1024x1024");
+    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("1152x2048 (2K)");
 
     await user.click(screen.getByRole("tab", { name: "编辑" }));
-    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("2048x2048");
+    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("2048x2048 (2K)");
   });
 
   test("clears failed requests while keeping successful ones", async () => {
