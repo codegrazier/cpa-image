@@ -906,6 +906,19 @@ export function useImageConsole() {
   }, [activeCount]);
 
   useEffect(() => {
+    if (!activeCount || typeof window === "undefined") return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [activeCount]);
+
+  useEffect(() => {
     const hasActive = requestRecords.some(isActiveRequest);
 
     if (hasActive) {

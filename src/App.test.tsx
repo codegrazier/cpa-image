@@ -945,6 +945,22 @@ describe("App", () => {
     expect(downloads[1]).toMatch(/-2\.png$/);
   });
 
+  test("blocks page unload while requests are active", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    await screen.findAllByText("生成中");
+
+    const beforeUnloadEvent = new Event("beforeunload", { cancelable: true });
+    expect(window.dispatchEvent(beforeUnloadEvent)).toBe(false);
+    expect(beforeUnloadEvent.defaultPrevented).toBe(true);
+  });
+
   test("keeps the selected request unchanged after starting another generation", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
