@@ -30,12 +30,16 @@ export const PINNED_PROMPT_HISTORY_KEY_BY_MODE = {
 
 export const SIZE_OPTIONS = [
   "auto",
-  "1024x1024",
+  "1254x1254",
   "2048x2048",
+  "1448x1086",
+  "2048x1536",
   "1536x1024",
   "2048x1152",
   "3840x2160",
   "1024x1536",
+  "1086x1448",
+  "1536x2048",
   "1152x2048",
   "2160x3840",
 ] as const;

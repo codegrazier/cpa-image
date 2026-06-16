@@ -741,7 +741,21 @@ describe("App", () => {
     expect(await screen.findByText("方形")).toBeInTheDocument();
     expect(screen.getByText("横屏")).toBeInTheDocument();
     expect(screen.getByText("竖屏")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "auto" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "auto",
+      "1254x1254",
+      "2048x2048 (2K)",
+      "1448x1086",
+      "1536x1024",
+      "2048x1152 (2K)",
+      "2048x1536 (2K)",
+      "3840x2160 (4K)",
+      "1024x1536",
+      "1086x1448",
+      "1152x2048 (2K)",
+      "1536x2048 (2K)",
+      "2160x3840 (4K)",
+    ]);
     await user.click(await screen.findByRole("option", { name: "1152x2048 (2K)" }));
     expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("1152x2048 (2K)");
 

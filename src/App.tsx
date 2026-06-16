@@ -73,26 +73,45 @@ const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
 const REQUEST_ERROR_PREVIEW_LIMIT = 240;
 const SIZE_OPTION_DISPLAY_LABELS: Record<string, string> = {
   "2048x2048": "2048x2048 (2K)",
+  "2048x1536": "2048x1536 (2K)",
   "2048x1152": "2048x1152 (2K)",
   "1152x2048": "1152x2048 (2K)",
   "3840x2160": "3840x2160 (4K)",
   "2160x3840": "2160x3840 (4K)",
+  "1536x2048": "1536x2048 (2K)",
 };
 const SIZE_GROUPS = {
   zh: [
-    { label: "方形", icon: SquareIcon, options: ["1024x1024", "2048x2048"] },
-    { label: "横屏", icon: RectangleHorizontalIcon, options: ["1536x1024", "2048x1152", "3840x2160"] },
-    { label: "竖屏", icon: RectangleVerticalIcon, options: ["1024x1536", "1152x2048", "2160x3840"] },
+    { label: "方形", icon: SquareIcon, options: ["1254x1254", "2048x2048"] },
+    { label: "横屏", icon: RectangleHorizontalIcon, options: ["1448x1086", "2048x1536", "1536x1024", "2048x1152", "3840x2160"] },
+    { label: "竖屏", icon: RectangleVerticalIcon, options: ["1024x1536", "1086x1448", "1536x2048", "1152x2048", "2160x3840"] },
   ],
   en: [
-    { label: "Square", icon: SquareIcon, options: ["1024x1024", "2048x2048"] },
-    { label: "Landscape", icon: RectangleHorizontalIcon, options: ["1536x1024", "2048x1152", "3840x2160"] },
-    { label: "Portrait", icon: RectangleVerticalIcon, options: ["1024x1536", "1152x2048", "2160x3840"] },
+    { label: "Square", icon: SquareIcon, options: ["1254x1254", "2048x2048"] },
+    { label: "Landscape", icon: RectangleHorizontalIcon, options: ["1448x1086", "2048x1536", "1536x1024", "2048x1152", "3840x2160"] },
+    { label: "Portrait", icon: RectangleVerticalIcon, options: ["1024x1536", "1086x1448", "1536x2048", "1152x2048", "2160x3840"] },
   ],
 } as const;
 
 function sizeOptionDisplayLabel(option: string) {
   return SIZE_OPTION_DISPLAY_LABELS[option] || option;
+}
+
+function parseSizeOption(option: string) {
+  const [width, height] = option.split("x").map((part) => Number(part));
+
+  return {
+    width: Number.isFinite(width) ? width : Number.POSITIVE_INFINITY,
+    height: Number.isFinite(height) ? height : Number.POSITIVE_INFINITY,
+  };
+}
+
+function sortSizeOptions(options: readonly string[]) {
+  return [...options].sort((left, right) => {
+    const leftSize = parseSizeOption(left);
+    const rightSize = parseSizeOption(right);
+    return leftSize.width - rightSize.width || leftSize.height - rightSize.height;
+  });
 }
 
 function truncateDisplayText(value: string, limit: number) {
@@ -225,7 +244,7 @@ function OptionSelect({
 
 function SizeSelect({ value, onValueChange }: { value: string; onValueChange: (value: string) => void }) {
   const { copy, language } = useI18n();
-  const groups = SIZE_GROUPS[language];
+  const groups = SIZE_GROUPS[language].map((group) => ({ ...group, options: sortSizeOptions(group.options) }));
 
   return (
     <Field>
