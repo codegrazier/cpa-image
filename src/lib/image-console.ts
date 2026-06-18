@@ -105,6 +105,7 @@ export interface ImageToolPayload {
   quality?: string;
   background?: string;
   output_format?: string;
+  moderation?: string;
 }
 
 export interface EditInputImage {
@@ -148,6 +149,7 @@ export interface RequestPayload {
   background?: string;
   output_format?: string;
   response_format?: string;
+  moderation?: string;
   tools?: ImageToolPayload[];
   tool_choice?: {
     type: "image_generation";
@@ -612,6 +614,7 @@ export function buildPayload(
     background: values.background || DEFAULTS.background,
     output_format: values.outputFormat || DEFAULTS.outputFormat,
     response_format: "b64_json",
+    moderation: "low",
   };
 }
 
@@ -641,6 +644,7 @@ export function buildResponsesImagePayload(
         quality: values.quality || DEFAULTS.quality,
         background: values.background || DEFAULTS.background,
         output_format: values.outputFormat || DEFAULTS.outputFormat,
+        moderation: "low",
       },
     ],
     tool_choice: {
@@ -721,6 +725,7 @@ export function buildEditImagePayload(
     quality: values.quality || DEFAULTS.quality,
     background: values.background || DEFAULTS.background,
     output_format: values.outputFormat || DEFAULTS.outputFormat,
+    moderation: "low",
   };
 }
 

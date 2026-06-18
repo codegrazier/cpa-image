@@ -928,7 +928,10 @@ describe("App", () => {
       "http://localhost:8317/v1/images/generations",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe("gpt-image-custom");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(expect.objectContaining({
+      model: "gpt-image-custom",
+      moderation: "low",
+    }));
   });
 
   test("downloads every image from multi-image generation responses", async () => {

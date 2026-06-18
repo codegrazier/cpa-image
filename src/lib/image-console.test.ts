@@ -135,6 +135,7 @@ describe("image console logic", () => {
       background: "opaque",
       output_format: "webp",
       response_format: "b64_json",
+      moderation: "low",
     });
   });
 
@@ -148,6 +149,7 @@ describe("image console logic", () => {
 
     expect(payload.model).toBe("gpt-5.6");
     expect(payload.tools?.[0].type).toBe("image_generation");
+    expect(payload.tools?.[0].moderation).toBe("low");
   });
 
   test("builds edit payload with uploaded images", () => {
@@ -171,6 +173,7 @@ describe("image console logic", () => {
     expect(payload.images).toBeUndefined();
     expect(payload.n).toBe(2);
     expect(payload.output_format).toBe("webp");
+    expect(payload.moderation).toBe("low");
   });
 
   test("rejects edit payloads with more than five input images", () => {
@@ -214,6 +217,7 @@ describe("image console logic", () => {
           quality: "high",
           background: "opaque",
           output_format: "webp",
+          moderation: "low",
         },
       ],
       tool_choice: {
@@ -392,6 +396,7 @@ describe("image console logic", () => {
     expect(requests).toHaveLength(3);
     expect(requests[0].model).toBe("gpt-image-2");
     expect(requests[0].n).toBe(1);
+    expect(requests[0].moderation).toBe("low");
     expect(requests[0]).not.toBe(requests[1]);
   });
 
