@@ -249,6 +249,7 @@ type Copy = {
     reusePrompt: string;
     responseJson: string;
     download: string;
+    editImage: string;
     rotateCounterclockwise: string;
     resolution: string;
   };
@@ -449,6 +450,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "复用 Prompt",
       responseJson: "响应 JSON",
       download: "下载",
+      editImage: "编辑图片",
       rotateCounterclockwise: "逆时针旋转图片",
       resolution: "响应分辨率",
     },
@@ -664,6 +666,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "Reuse prompt",
       responseJson: "Response JSON",
       download: "Download",
+      editImage: "Edit image",
       rotateCounterclockwise: "Rotate image counterclockwise",
       resolution: "Resolution",
     },

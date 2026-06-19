@@ -646,9 +646,11 @@ function RequestListPanel({
 function Gallery({
   request,
   loading,
+  onEditImage,
 }: {
   request: ImageRequestRecord | null;
   loading: boolean;
+  onEditImage: (value: string) => void;
 }) {
   const { copy, language } = useI18n();
   const images = request?.status === "done" && !request.detailsMissing ? request.images : [];
@@ -714,26 +716,43 @@ function Gallery({
           >
             {image ? (
               <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="icon-xs"
-                      aria-label={copy.requestCardStatus.rotateCounterclockwise}
-                      className="absolute top-2 right-2 z-10 border border-border/70 bg-background/85 opacity-0 shadow-sm backdrop-blur transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
-                      onClick={() =>
-                        setRotationByImageKey((current) => ({
-                          ...current,
-                          [imageKey]: (current[imageKey] || 0) - 90,
-                        }))
-                      }
-                    >
-                      <RotateCcwIcon />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent sideOffset={8}>{copy.requestCardStatus.rotateCounterclockwise}</TooltipContent>
-                </Tooltip>
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon-xs"
+                        aria-label={copy.requestCardStatus.editImage}
+                        className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                        onClick={() => onEditImage(`${requestId}:${index}`)}
+                      >
+                        <PencilIcon data-icon="inline-start" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent sideOffset={8}>{copy.requestCardStatus.editImage}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon-xs"
+                        aria-label={copy.requestCardStatus.rotateCounterclockwise}
+                        className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                        onClick={() =>
+                          setRotationByImageKey((current) => ({
+                            ...current,
+                            [imageKey]: (current[imageKey] || 0) - 90,
+                          }))
+                        }
+                      >
+                        <RotateCcwIcon data-icon="inline-start" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent sideOffset={8}>{copy.requestCardStatus.rotateCounterclockwise}</TooltipContent>
+                  </Tooltip>
+                </div>
                 <img
                   src={image.src}
                   alt={`Generated image ${index + 1}`}
@@ -754,7 +773,12 @@ function Gallery({
   );
 }
 
-function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
+function ResultPanel({
+  onEditImage,
+  ...consoleState
+}: ReturnType<typeof useImageConsole> & {
+  onEditImage: (value: string) => void;
+}) {
   const { copy, language } = useI18n();
   const {
     selectedRequest,
@@ -853,7 +877,7 @@ function ResultPanel(consoleState: ReturnType<typeof useImageConsole>) {
         </div>
 
         <div className="min-h-0 flex-1 p-4">
-          <Gallery request={selectedRequest} loading={selectedRequestDetailLoading} />
+          <Gallery request={selectedRequest} loading={selectedRequestDetailLoading} onEditImage={onEditImage} />
         </div>
       </div>
     </section>
@@ -1016,9 +1040,11 @@ function StrictPromptEditorDialog({
 
 function GeneratorPanel({
   onOpenStrictPromptEditor,
+  editPromptFocusSignal,
   ...consoleState
 }: ReturnType<typeof useImageConsole> & {
   onOpenStrictPromptEditor: () => void;
+  editPromptFocusSignal: number;
 }) {
   const { copy, toggleLanguage } = useI18n();
   const {
@@ -1045,8 +1071,19 @@ function GeneratorPanel({
     togglePromptHistoryPin,
   } = consoleState;
   const editImagesInputRef = useRef<HTMLInputElement>(null);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const generationButtonFeedbackClassName = "transition-all duration-100 active:translate-y-px active:scale-[0.99] active:brightness-95";
   const editImageSelectionFull = editImages.length >= MAX_EDIT_INPUT_IMAGES;
+
+  useEffect(() => {
+    if (mode !== "edit" || editPromptFocusSignal <= 0) return;
+
+    const timeoutId = window.setTimeout(() => {
+      promptTextareaRef.current?.focus();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [editPromptFocusSignal, mode]);
 
   function submitGeneration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1126,6 +1163,7 @@ function GeneratorPanel({
           <Textarea
             id="prompt"
             name="prompt"
+            ref={promptTextareaRef}
             rows={4}
             maxLength={32000}
             value={prompt}
@@ -1710,6 +1748,7 @@ function ResponseJsonDialog({
 export default function App() {
   const { copy } = useI18n();
   const consoleState = useImageConsole();
+  const [editPromptFocusSignal, setEditPromptFocusSignal] = useState(0);
   const [cancelRequestsDialogOpen, setCancelRequestsDialogOpen] = useState(false);
   const [clearFailedDialogOpen, setClearFailedDialogOpen] = useState(false);
   const [clearCompletedDialogOpen, setClearCompletedDialogOpen] = useState(false);
@@ -1740,6 +1779,12 @@ export default function App() {
     }
   }
 
+  function handleEditImage(value: string) {
+    consoleState.setMode("edit");
+    setEditPromptFocusSignal((current) => current + 1);
+    void consoleState.addHistoricalEditImage(value);
+  }
+
   return (
     <>
       <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-4 bg-muted/30 p-4 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_400px] lg:overflow-hidden">
@@ -1756,9 +1801,10 @@ export default function App() {
           onOpenExportZip={() => setExportZipConfirmOpen(true)}
           extraModalOpen={extraModalOpen}
         />
-        <ResultPanel {...consoleState} />
+        <ResultPanel {...consoleState} onEditImage={handleEditImage} />
         <GeneratorPanel
           {...consoleState}
+          editPromptFocusSignal={editPromptFocusSignal}
           onOpenStrictPromptEditor={() => {
             setStrictPromptEditorOpen(true);
           }}

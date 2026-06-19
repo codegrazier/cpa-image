@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { toast } from "sonner";
@@ -684,6 +684,82 @@ describe("App", () => {
     expect(screen.queryByText(`${requestTitle}-image-1.png`)).not.toBeInTheDocument();
     expect(screen.getByTestId("edit-image-preview-strip")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /删除输入图片 \d+/ })).toHaveLength(1);
+  });
+
+  test("adds preview image to edit inputs and focuses prompt from the preview edit button", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const sourceImage = {
+      src: `data:image/png;base64,${PNG_BASE64}`,
+      kind: "base64" as const,
+      path: "$.data[0].b64_json",
+      mimeType: "image/png",
+    };
+    const cachedRequests: ImageRequestRecord[] = [
+      {
+        id: "completed-request",
+        title: "260613-1200-1",
+        index: 1,
+        total: 1,
+        method: "gpt-image-2",
+        endpoint: "http://localhost:8317/v1/images/generations",
+        payload: { model: "gpt-image-2", n: 1 },
+        sourcePrompt: "glass jellyfish",
+        imageCount: 1,
+        imageResolution: "",
+        imageSizeBytes: 0,
+        hasCachedDetails: true,
+        detailsMissing: false,
+        status: "done",
+        createdAt: 1000,
+        startedAt: 1000,
+        endedAt: 2000,
+        completedAt: 2000,
+        images: [sourceImage],
+        response: null,
+        rawResponse: null,
+        error: "",
+        controller: null,
+        cancelRequested: false,
+        thumbnail: sourceImage,
+        editImages: [],
+      },
+    ];
+
+    vi.spyOn(storage, "loadCachedRequests").mockResolvedValue(cachedRequests);
+    vi.spyOn(storage, "saveCachedRequests").mockImplementation(() => undefined);
+    vi.spyOn(storage, "saveRequestDetails").mockResolvedValue(undefined);
+    vi.spyOn(storage, "loadRequestDetails").mockResolvedValue({
+      images: [sourceImage],
+      response: null,
+      rawResponse: null,
+      thumbnail: sourceImage,
+      savedAt: Date.now(),
+    });
+
+    if (typeof URL.createObjectURL !== "function") {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: vi.fn(() => "blob:history-preview"),
+      });
+    } else {
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:history-preview");
+    }
+
+    renderApp();
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    await waitFor(() => expect(within(resultPanel).getByAltText("Generated image 1")).toBeInTheDocument());
+
+    fireEvent.click(within(resultPanel).getByRole("button", { name: "编辑图片" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "编辑" })).toHaveAttribute("aria-selected", "true"));
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveFocus());
+    expect(screen.getByTestId("edit-image-preview-strip")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /删除输入图片 \d+/ })).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "删除输入图片 1" }));
+    expect(screen.queryByTestId("edit-image-preview-strip")).not.toBeInTheDocument();
   });
 
   test("shows all completed request images in the historical edit selector", async () => {
