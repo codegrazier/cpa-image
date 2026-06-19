@@ -131,10 +131,15 @@ function downloadRequestImages(request: Pick<ImageRequestRecord, "images" | "pay
   for (const [index, image] of images.entries()) {
     if (!image?.src) continue;
 
+    const isRemoteUrlFallback = /^https?:\/\//i.test(image.src);
     const anchor = document.createElement("a");
     anchor.href = image.src;
-    anchor.download = imageDownloadName(request, index);
     anchor.rel = "noopener";
+    if (isRemoteUrlFallback) {
+      anchor.target = "_blank";
+    } else {
+      anchor.download = imageDownloadName(request, index);
+    }
     anchor.style.display = "none";
     document.body.appendChild(anchor);
     anchor.click();

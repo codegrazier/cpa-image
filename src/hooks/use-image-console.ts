@@ -13,6 +13,7 @@ import {
   buildResponsesImagePayload,
   buildResponsesImageRequests,
   createRequestRecords,
+  CROSS_ORIGIN_PROXY_PREFIX,
   DEFAULTS,
   extractImages,
   formatRequestTiming,
@@ -313,23 +314,49 @@ async function prepareThumbnailFromImage(image: GeneratedImage): Promise<Generat
   }
 }
 
-async function hydrateUrlImageBlob(image: GeneratedImage, signal: AbortSignal): Promise<GeneratedImage> {
+async function fetchImageBlobFromUrl(url: string, signal: AbortSignal) {
+  const response = await fetch(url, { signal });
+  if (!response.ok) return null;
+
+  const blob = await response.blob();
+  return blob.size ? blob : null;
+}
+
+function proxiedImageUrl(url: string) {
+  return `${CROSS_ORIGIN_PROXY_PREFIX}${encodeURIComponent(url)}`;
+}
+
+async function hydrateUrlImageBlob(
+  image: GeneratedImage,
+  signal: AbortSignal,
+  enableCrossOriginProxy: boolean,
+): Promise<GeneratedImage> {
   if (image.kind !== "url" || !/^https?:\/\//i.test(image.src)) return image;
 
   try {
-    const response = await fetch(image.src, { signal });
-    if (!response.ok) return image;
-
-    const blob = await response.blob();
-    if (!blob.size) return image;
+    const blob = await fetchImageBlobFromUrl(image.src, signal);
+    if (!blob) return image;
 
     return {
       ...image,
       mimeType: blob.type || image.mimeType,
       blob,
     };
-  } catch {
-    return image;
+  } catch (error) {
+    if (!enableCrossOriginProxy || !isFetchNetworkFailure(error)) return image;
+
+    try {
+      const blob = await fetchImageBlobFromUrl(proxiedImageUrl(image.src), signal);
+      if (!blob) return image;
+
+      return {
+        ...image,
+        mimeType: blob.type || image.mimeType,
+        blob,
+      };
+    } catch {
+      return image;
+    }
   }
 }
 
@@ -673,15 +700,24 @@ export function useImageConsole() {
     );
 
     const latestSelected = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
+    const latestSelectedNeedsImages = Boolean(
+      latestSelected &&
+        latestSelected.status === "done" &&
+        requestImageCount(latestSelected) > 0 &&
+        !latestSelected.images.length,
+    );
+    const latestSelectedNeedsResponse = Boolean(
+      latestSelected &&
+        latestSelected.response == null &&
+        latestSelected.rawResponse == null,
+    );
     if (
       !latestSelected ||
       latestSelected.status === "queued" ||
       latestSelected.status === "running" ||
       !latestSelected.hasCachedDetails ||
       latestSelected.detailsMissing ||
-      latestSelected.images.length ||
-      latestSelected.response != null ||
-      latestSelected.rawResponse != null
+      (!latestSelectedNeedsImages && !latestSelectedNeedsResponse)
     ) {
       setSelectedRequestDetailLoadingId(null);
       return () => {
@@ -887,7 +923,10 @@ export function useImageConsole() {
           ...image,
           path: `${request.title} · ${image.path}`,
         }));
-        const localImages = await Promise.all(extractedImages.map((image) => hydrateUrlImageBlob(image, controller.signal)));
+        const enableImageProxyFallback = String(request.endpoint || "").startsWith(CROSS_ORIGIN_PROXY_PREFIX);
+        const localImages = await Promise.all(
+          extractedImages.map((image) => hydrateUrlImageBlob(image, controller.signal, enableImageProxyFallback)),
+        );
         const detailImages = (
           await Promise.all(localImages.map((image) => prepareImageForDetailCacheWithDimensions(image)))
         ).filter(isGeneratedImage);

@@ -13,6 +13,7 @@ import {
   STRICT_PROMPT_FOOTER,
   STRICT_PROMPT_HEADER,
   normalizeImageEndpoint,
+  CROSS_ORIGIN_PROXY_PREFIX,
   type AppSettings,
   type ImageRequestRecord,
 } from "@/lib/image-console";
@@ -1038,6 +1039,39 @@ describe("App", () => {
     expect(downloads[1]).toMatch(/-2\.png$/);
   });
 
+  test("opens remote URL fallback images in a new tab when download cannot use a blob", async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    const imageUrl = "https://cdn.example.com/generated.png";
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === imageUrl) {
+        return Promise.reject(new Error("Failed to fetch"));
+      }
+
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [{ url: imageUrl }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    storeSettings({ requestIntervalSeconds: 0, enableCrossOriginProxy: false });
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", imageUrl);
+    await user.click(screen.getByRole("button", { name: "下载" }));
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.href).toBe(imageUrl);
+    expect(anchor.target).toBe("_blank");
+    expect(anchor.download).toBe("");
+  });
+
   test("exports all completed images as a ZIP after confirmation", async () => {
     const user = userEvent.setup();
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
@@ -1155,6 +1189,63 @@ describe("App", () => {
 
     expect(within(resultPanel).getByText(secondTitle)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  test("loads cached image details when a completed selected request has raw response but no runtime images", async () => {
+    const cachedRequests: ImageRequestRecord[] = [
+      {
+        id: "completed-request",
+        title: "260613-1200-1",
+        index: 1,
+        total: 1,
+        method: "gpt-image-2",
+        endpoint: "http://localhost:8317/v1/images/generations",
+        payload: { model: "gpt-image-2", n: 1 },
+        sourcePrompt: "glass jellyfish",
+        imageCount: 1,
+        imageResolution: "",
+        imageSizeBytes: 0,
+        hasCachedDetails: true,
+        detailsMissing: false,
+        status: "done",
+        createdAt: 1000,
+        startedAt: 1000,
+        endedAt: 2000,
+        completedAt: 2000,
+        images: [],
+        response: null,
+        rawResponse: { data: [{ b64_json: "[image data omitted]" }] },
+        error: "",
+        controller: null,
+        cancelRequested: false,
+        thumbnail: null,
+        editImages: [],
+      },
+    ];
+    const loadRequestDetailsSpy = vi.spyOn(storage, "loadRequestDetails").mockResolvedValue({
+      images: [
+        {
+          src: `data:image/webp;base64,${WEBP_BASE64}`,
+          kind: "base64",
+          path: "$.data[0].b64_json",
+          mimeType: "image/webp",
+        },
+      ],
+      response: { data: [{ b64_json: "[image data omitted]" }] },
+      rawResponse: { data: [{ b64_json: WEBP_BASE64 }] },
+      thumbnail: null,
+      savedAt: Date.now(),
+    });
+    vi.spyOn(storage, "loadCachedRequests").mockResolvedValue(cachedRequests);
+    vi.spyOn(storage, "saveCachedRequests").mockImplementation(() => undefined);
+    vi.spyOn(storage, "saveRequestDetails").mockResolvedValue(undefined);
+
+    renderApp();
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    await waitFor(() => expect(loadRequestDetailsSpy).toHaveBeenCalledWith("completed-request"));
+    await waitFor(() => expect(within(resultPanel).queryByText("历史详情加载中")).not.toBeInTheDocument());
+    expect(within(resultPanel).getByAltText("Generated image 1")).toBeInTheDocument();
   });
 
   test("moves between request cards with global arrow keys outside dialogs", async () => {
@@ -1621,6 +1712,56 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "下载" }));
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect((clickSpy.mock.instances[0] as HTMLAnchorElement).href).toBe("blob:grok-preview");
+  });
+
+  test("falls back to the cross-origin proxy when downloading URL images as blobs", async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:proxied-image");
+    storeSettings({ requestIntervalSeconds: 0, enableCrossOriginProxy: true });
+    const imageUrl = "https://grok.example.com/v1/files/image?id=a45788dd-23fb-4bd2-8012-e1f9991fcffa";
+    const proxiedImageUrl = `${CROSS_ORIGIN_PROXY_PREFIX}${encodeURIComponent(imageUrl)}`;
+    const streamedBody = [
+      `data: {"choices":[{"delta":{"content":"![image](${imageUrl})"}}]}`,
+      "data: [DONE]",
+    ].join("\n\n");
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === imageUrl) {
+        return Promise.reject(new Error("Failed to fetch"));
+      }
+      if (url === proxiedImageUrl) {
+        return Promise.resolve(
+          new Response(new Blob(["proxied-image-bytes"], { type: "image/png" }), {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        new Response(streamedBody, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^completions$/ }));
+
+    const generatedImage = await screen.findByAltText("Generated image 1");
+    expect(generatedImage).toHaveAttribute("src", "blob:proxied-image");
+    expect(fetchMock).toHaveBeenCalledWith(imageUrl, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith(proxiedImageUrl, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(toastErrorSpy).not.toHaveBeenCalledWith("浏览器阻止了跨域请求，请检查上游代理的 CORS 配置。");
+
+    await user.click(screen.getByRole("button", { name: "下载" }));
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect((clickSpy.mock.instances[0] as HTMLAnchorElement).href).toBe("blob:proxied-image");
   });
 
   test("filters completed requests, reuses prompt, and opens response JSON", async () => {
