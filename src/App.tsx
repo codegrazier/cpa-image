@@ -1117,10 +1117,22 @@ function GeneratorPanel({
     event.currentTarget.value = "";
   }
 
+  function handleModeChange(value: string) {
+    const nextMode = value as ConsoleMode;
+    const shouldFocusGeneratePrompt = mode === "edit" && nextMode === "generate";
+    setMode(nextMode);
+
+    if (!shouldFocusGeneratePrompt) return;
+
+    window.setTimeout(() => {
+      promptTextareaRef.current?.focus();
+    }, 0);
+  }
+
   return (
     <form noValidate onSubmit={submitGeneration} className="flex min-h-0 min-w-0 flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-none">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs value={mode} onValueChange={(value) => setMode(value as ConsoleMode)}>
+        <Tabs value={mode} onValueChange={handleModeChange}>
           <TabsList className="h-10 rounded-full border border-border bg-muted/40 p-1">
             <TabsTrigger value="generate" className="rounded-full px-4 text-xs">
               {copy.generator.generate}

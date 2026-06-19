@@ -868,6 +868,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("tab", { name: "生图" }));
     expect(screen.getByLabelText("Prompt")).toHaveValue("generate draft");
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveFocus());
 
     await user.click(screen.getByRole("tab", { name: "编辑" }));
     expect(screen.getByLabelText("Prompt")).toHaveValue("edit draft");
