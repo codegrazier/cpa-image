@@ -62,8 +62,10 @@ export interface AppSettings {
   apiKey: string;
   rememberKey: boolean;
   enableCrossOriginProxy: boolean;
-  model: string;
-  llmModel: string;
+  generationsModel: string;
+  editsModel: string;
+  responsesModel: string;
+  completionsModel: string;
   strictPromptText: string;
   strictPrompt: boolean;
   requestConcurrency: number | string;
@@ -81,8 +83,10 @@ export type SharedSettings = Pick<
   | "apiKey"
   | "rememberKey"
   | "enableCrossOriginProxy"
-  | "model"
-  | "llmModel"
+  | "generationsModel"
+  | "editsModel"
+  | "responsesModel"
+  | "completionsModel"
   | "strictPromptText"
   | "requestConcurrency"
   | "requestIntervalSeconds"
@@ -211,8 +215,10 @@ export const DEFAULTS: AppSettings = {
   apiKey: "",
   rememberKey: false,
   enableCrossOriginProxy: false,
-  model: "gpt-image-2",
-  llmModel: "gpt-5.4-mini",
+  generationsModel: "gpt-image-2",
+  editsModel: "gpt-image-2",
+  responsesModel: "gpt-5.4-mini",
+  completionsModel: "gpt-5.4-mini",
   strictPromptText: "",
   strictPrompt: true,
   requestConcurrency: 2,
@@ -229,8 +235,10 @@ export const DEFAULT_SHARED_SETTINGS: SharedSettings = {
   apiKey: DEFAULTS.apiKey,
   rememberKey: DEFAULTS.rememberKey,
   enableCrossOriginProxy: DEFAULTS.enableCrossOriginProxy,
-  model: DEFAULTS.model,
-  llmModel: DEFAULTS.llmModel,
+  generationsModel: DEFAULTS.generationsModel,
+  editsModel: DEFAULTS.editsModel,
+  responsesModel: DEFAULTS.responsesModel,
+  completionsModel: DEFAULTS.completionsModel,
   strictPromptText: DEFAULTS.strictPromptText,
   requestConcurrency: DEFAULTS.requestConcurrency,
   requestIntervalSeconds: DEFAULTS.requestIntervalSeconds,
@@ -321,8 +329,10 @@ export function normalizeSharedSettings(values: unknown = {}): SharedSettings {
     apiKey: String(source.apiKey || "").trim(),
     rememberKey: Boolean(source.rememberKey),
     enableCrossOriginProxy: Boolean(source.enableCrossOriginProxy),
-    model: String(source.model || DEFAULTS.model).trim() || DEFAULTS.model,
-    llmModel: String(source.llmModel || DEFAULTS.llmModel).trim() || DEFAULTS.llmModel,
+    generationsModel: String(source.generationsModel || source.model || DEFAULTS.generationsModel).trim() || DEFAULTS.generationsModel,
+    editsModel: String(source.editsModel || source.model || DEFAULTS.editsModel).trim() || DEFAULTS.editsModel,
+    responsesModel: String(source.responsesModel || source.llmModel || DEFAULTS.responsesModel).trim() || DEFAULTS.responsesModel,
+    completionsModel: String(source.completionsModel || source.llmModel || DEFAULTS.completionsModel).trim() || DEFAULTS.completionsModel,
     strictPromptText: normalizeStrictPromptText(source.strictPromptText),
     requestConcurrency: normalizeRequestConcurrency(source.requestConcurrency),
     requestIntervalSeconds: normalizeRequestIntervalSeconds(source.requestIntervalSeconds),
@@ -599,10 +609,10 @@ export function buildPayload(
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   }, language);
   const imageCount = imageCountFromValue(values.n || DEFAULTS.n, language);
-  const model = String(values.model || DEFAULTS.model).trim();
+  const model = String(values.generationsModel || DEFAULTS.generationsModel).trim();
 
   if (!model) {
-    throw new Error(validationCopy(language).generationModelRequired);
+    throw new Error(validationCopy(language).generationsModelRequired);
   }
 
   return {
@@ -627,11 +637,11 @@ export function buildResponsesImagePayload(
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   }, language);
-  const model = String(values.llmModel || DEFAULTS.llmModel).trim();
+  const model = String(values.responsesModel || DEFAULTS.responsesModel).trim();
   imageCountFromValue(values.n || DEFAULTS.n, language);
 
   if (!model) {
-    throw new Error(validationCopy(language).chatModelRequired);
+    throw new Error(validationCopy(language).responsesModelRequired);
   }
 
   return {
@@ -662,11 +672,11 @@ export function buildChatCompletionsImagePayload(
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   }, language);
-  const model = String(values.llmModel || DEFAULTS.llmModel).trim();
+  const model = String(values.completionsModel || DEFAULTS.completionsModel).trim();
   imageCountFromValue(values.n || DEFAULTS.n, language);
 
   if (!model) {
-    throw new Error(validationCopy(language).chatModelRequired);
+    throw new Error(validationCopy(language).completionsModelRequired);
   }
 
   return {
@@ -702,11 +712,11 @@ export function buildEditImagePayload(
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   }, language);
-  const model = String(values.model || DEFAULTS.model).trim();
+  const model = String(values.editsModel || DEFAULTS.editsModel).trim();
   const requestedCount = imageCountFromValue(values.n || DEFAULTS.n, language);
 
   if (!model) {
-    throw new Error(validationCopy(language).generationModelRequired);
+    throw new Error(validationCopy(language).editsModelRequired);
   }
 
   if (!Array.isArray(images) || !images.length) {
@@ -1105,8 +1115,10 @@ function validationCopy(language: MessageLanguage) {
     ? {
         promptRequired: "Prompt cannot be empty.",
         transparentJpeg: "Transparent background requires png or webp.",
-        generationModelRequired: "Image model cannot be empty.",
-        chatModelRequired: "Chat model cannot be empty.",
+        generationsModelRequired: "Generations model cannot be empty.",
+        editsModelRequired: "Edits model cannot be empty.",
+        responsesModelRequired: "Responses model cannot be empty.",
+        completionsModelRequired: "Completions model cannot be empty.",
         editInputMissing: "Please choose at least one image.",
         editInputLimit: (count: number) => `Edit mode supports up to ${count} images.`,
         imageCountRange: (count: number) => `Count must be an integer between 1 and ${count}.`,
@@ -1114,8 +1126,10 @@ function validationCopy(language: MessageLanguage) {
     : {
         promptRequired: "Prompt 不能为空。",
         transparentJpeg: "透明背景需要 png 或 webp 格式。",
-        generationModelRequired: "生图模型不能为空。",
-        chatModelRequired: "对话模型不能为空。",
+        generationsModelRequired: "generations 模型不能为空。",
+        editsModelRequired: "edits 模型不能为空。",
+        responsesModelRequired: "responses 模型不能为空。",
+        completionsModelRequired: "completions 模型不能为空。",
         editInputMissing: "请先选择至少一张图片。",
         editInputLimit: (count: number) => `编辑模式最多选择 ${count} 张图片。`,
         imageCountRange: (count: number) => `数量必须是 1 到 ${count} 之间的整数。`,
@@ -1216,6 +1230,21 @@ export async function prepareImageForThumbnailCache(
   image: GeneratedImage,
   maxEdge = 160,
 ): Promise<GeneratedImage | null> {
+  const blob = imageBlobFromImage(image);
+  if (blob) {
+    const thumbnailSrc = await dataUrlFromBlobThumbnail(blob, maxEdge);
+    if (!thumbnailSrc) {
+      return null;
+    }
+
+    return {
+      src: thumbnailSrc,
+      kind: "base64",
+      path: image.path,
+      mimeType: "image/webp",
+    };
+  }
+
   if (image.kind === "url") {
     return {
       src: image.src,
@@ -1225,22 +1254,7 @@ export async function prepareImageForThumbnailCache(
     };
   }
 
-  const blob = imageBlobFromImage(image);
-  if (!blob) {
-    return null;
-  }
-
-  const thumbnailSrc = await dataUrlFromBlobThumbnail(blob, maxEdge);
-  if (!thumbnailSrc) {
-    return null;
-  }
-
-  return {
-    src: thumbnailSrc,
-    kind: "base64",
-    path: image.path,
-    mimeType: "image/webp",
-  };
+  return null;
 }
 
 function base64ToDataUrl(value: unknown, fallbackFormat = "png") {
@@ -1341,6 +1355,19 @@ async function imageDimensionsFromBlob(blob: Blob, fallbackSource = "") {
 }
 
 export function prepareImageForDetailCache(image: GeneratedImage): GeneratedImage | null {
+  const blob = imageBlobFromImage(image);
+  if (blob) {
+    return {
+      src: image.kind === "url" ? image.src : "",
+      kind: image.kind,
+      path: image.path,
+      mimeType: blob.type || image.mimeType,
+      width: image.width,
+      height: image.height,
+      blob,
+    };
+  }
+
   if (image.kind === "url") {
     return {
       src: image.src,
@@ -1349,19 +1376,6 @@ export function prepareImageForDetailCache(image: GeneratedImage): GeneratedImag
       mimeType: image.mimeType,
       width: image.width,
       height: image.height,
-    };
-  }
-
-  const blob = imageBlobFromImage(image);
-  if (blob) {
-    return {
-      src: "",
-      kind: "base64",
-      path: image.path,
-      mimeType: blob.type || image.mimeType,
-      width: image.width,
-      height: image.height,
-      blob,
     };
   }
 
@@ -1397,24 +1411,13 @@ export async function prepareImageForDetailCacheWithDimensions(image: GeneratedI
 }
 
 export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
-  if (image.kind === "url") {
-    return {
-      src: image.src,
-      kind: "url",
-      path: image.path,
-      mimeType: image.mimeType,
-      width: image.width,
-      height: image.height,
-    };
-  }
-
   const blob = imageBlobFromImage(image);
   if (blob && typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
     try {
       const objectUrl = URL.createObjectURL(blob);
       return {
         src: objectUrl,
-        kind: "base64",
+        kind: image.kind,
         path: image.path,
         mimeType: blob.type || image.mimeType,
         width: image.width,
@@ -1424,6 +1427,17 @@ export function prepareImageForRuntime(image: GeneratedImage): GeneratedImage {
     } catch {
       // 预览 URL 创建失败时回退到原始 src，避免生成流程被中断。
     }
+  }
+
+  if (image.kind === "url") {
+    return {
+      src: image.src,
+      kind: "url",
+      path: image.path,
+      mimeType: image.mimeType,
+      width: image.width,
+      height: image.height,
+    };
   }
 
   return {
@@ -1460,6 +1474,19 @@ function looksLikeBase64Image(value: unknown) {
   return text.length > 80 && /^[A-Za-z0-9+/=\s]+$/.test(text);
 }
 
+function markdownImageUrlsFromText(value: string) {
+  const urls: string[] = [];
+  const text = value.replace(/\\\//g, "/");
+  const markdownImagePattern = /!\[[^\]\r\n]*]\(\s*<?((?:https?:\/\/|data:image\/)[^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)/gi;
+
+  for (const match of text.matchAll(markdownImagePattern)) {
+    const url = match[1]?.trim();
+    if (url) urls.push(url);
+  }
+
+  return urls;
+}
+
 export function extractImages(response: unknown, fallbackFormat = "png") {
   const found: GeneratedImage[] = [];
   const seenObjects = new WeakSet<object>();
@@ -1475,12 +1502,22 @@ export function extractImages(response: unknown, fallbackFormat = "png") {
     if (value == null) return;
 
     if (typeof value === "string") {
-      if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:image/")) {
+      const text = value.trim().replace(/\\\//g, "/");
+      markdownImageUrlsFromText(text).forEach((url, index) => {
         addImage({
-          src: value.startsWith("data:image/") ? value : value.trim(),
-          kind: value.startsWith("data:image/") ? "base64" : "url",
+          src: url,
+          kind: url.startsWith("data:image/") ? "base64" : "url",
+          path: `${path}.markdownImage[${index}]`,
+          mimeType: url.startsWith("data:image/") ? dataUrlMimeType(url, fallbackFormat) : undefined,
+        });
+      });
+
+      if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("data:image/")) {
+        addImage({
+          src: text,
+          kind: text.startsWith("data:image/") ? "base64" : "url",
           path,
-          mimeType: value.startsWith("data:image/") ? dataUrlMimeType(value, fallbackFormat) : undefined,
+          mimeType: text.startsWith("data:image/") ? dataUrlMimeType(text, fallbackFormat) : undefined,
         });
       }
       return;
@@ -1548,6 +1585,15 @@ export function extractImages(response: unknown, fallbackFormat = "png") {
         if (!hasDirectBase64 && preferredUrlImage && key === preferredUrlImage.key) {
           addImage(preferredUrlImage.image);
         }
+
+        markdownImageUrlsFromText(child).forEach((url, index) => {
+          addImage({
+            src: url,
+            kind: url.startsWith("data:image/") ? "base64" : "url",
+            path: `${childPath}.markdownImage[${index}]`,
+            mimeType: url.startsWith("data:image/") ? dataUrlMimeType(url, fallbackFormat) : undefined,
+          });
+        });
 
         continue;
       }

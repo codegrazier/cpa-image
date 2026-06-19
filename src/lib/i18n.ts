@@ -197,6 +197,19 @@ type Copy = {
   cancelRequests: string;
   clearCompleted: string;
   clearFailed: string;
+  exportZip: {
+    button: string;
+    tooltip: string;
+    title: string;
+    description: (count: number) => string;
+    confirm: string;
+    progressTitle: string;
+    progressDescription: string;
+    progressStatus: (current: number, total: number) => string;
+    success: (count: number) => string;
+    failed: string;
+    noImages: string;
+  };
   requestListTooltips: {
     clearAll: string;
     cancelRequests: string;
@@ -236,6 +249,7 @@ type Copy = {
     reusePrompt: string;
     responseJson: string;
     download: string;
+    rotateCounterclockwise: string;
     resolution: string;
   };
   promptHistory: {
@@ -300,8 +314,10 @@ type Copy = {
       description: string;
       confirm: string;
     };
-    generationModel: string;
-    llmModel: string;
+    generationsModel: string;
+    editsModel: string;
+    responsesModel: string;
+    completionsModel: string;
     concurrency: string;
     interval: string;
     endpointPreview: string;
@@ -367,6 +383,19 @@ const COPY: Record<Language, Copy> = {
     cancelRequests: "取消请求",
     clearCompleted: "清空完成",
     clearFailed: "清空失败",
+    exportZip: {
+      button: "导出 ZIP",
+      tooltip: "批量导出全部已完成图片",
+      title: "导出全部已完成图片？",
+      description: (count) => `将把当前 ${count} 个已完成请求中的可用图片打包为 ZIP 下载。`,
+      confirm: "确认导出",
+      progressTitle: "正在导出 ZIP",
+      progressDescription: "正在读取本地图片详情并打包，请不要关闭页面。",
+      progressStatus: (current, total) => (total > 0 ? `已处理 ${current}/${total} 张图片` : "正在准备图片"),
+      success: (count) => `已成功导出 ${count} 张图片。`,
+      failed: "导出 ZIP 失败。",
+      noImages: "没有可导出的已完成图片。",
+    },
     requestListTooltips: {
       clearAll: "删除所有请求记录和本地图片详情",
       cancelRequests: "取消所有进行中和排队请求",
@@ -420,6 +449,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "复用 Prompt",
       responseJson: "响应 JSON",
       download: "下载",
+      rotateCounterclockwise: "逆时针旋转图片",
       resolution: "响应分辨率",
     },
     promptHistory: {
@@ -485,8 +515,10 @@ const COPY: Record<Language, Copy> = {
           "启用后，API 请求会先通过代理服务转发，用于绕过浏览器跨域限制。代理服务可能会接触到您的 API URL、请求头、Prompt、图片等请求内容。请仅在您信任此代理服务时启用。",
         confirm: "启用",
       },
-      generationModel: "生图模型",
-      llmModel: "对话模型",
+      generationsModel: "generations 模型",
+      editsModel: "edits 模型",
+      responsesModel: "responses 模型",
+      completionsModel: "completions 模型",
       concurrency: "并发",
       interval: "间隔（秒）",
       endpointPreview: "请求地址",
@@ -566,6 +598,19 @@ const COPY: Record<Language, Copy> = {
     cancelRequests: "Cancel",
     clearCompleted: "Clear done",
     clearFailed: "Clear failed",
+    exportZip: {
+      button: "Export ZIP",
+      tooltip: "Export all completed images as a ZIP",
+      title: "Export all completed images?",
+      description: (count) => `Available images from ${count} completed request${count === 1 ? "" : "s"} will be packaged into a ZIP file.`,
+      confirm: "Export",
+      progressTitle: "Exporting ZIP",
+      progressDescription: "Reading local image details and packaging the ZIP. Keep this page open.",
+      progressStatus: (current, total) => (total > 0 ? `Processed ${current}/${total} images` : "Preparing images"),
+      success: (count) => `Exported ${count} image${count === 1 ? "" : "s"}.`,
+      failed: "Failed to export ZIP.",
+      noImages: "No completed images are available to export.",
+    },
     requestListTooltips: {
       clearAll: "Delete all request records and local image details",
       cancelRequests: "Cancel all running and queued requests",
@@ -619,6 +664,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "Reuse prompt",
       responseJson: "Response JSON",
       download: "Download",
+      rotateCounterclockwise: "Rotate image counterclockwise",
       resolution: "Resolution",
     },
     promptHistory: {
@@ -684,8 +730,10 @@ const COPY: Record<Language, Copy> = {
           "Once enabled, API requests will be forwarded through a proxy service to bypass browser cross-origin restrictions. The proxy service may access your API URL, request headers, prompt, images, and other request content. Only enable this if you trust the proxy service.",
         confirm: "Enable",
       },
-      generationModel: "Image model",
-      llmModel: "Chat model",
+      generationsModel: "Generations model",
+      editsModel: "Edits model",
+      responsesModel: "Responses model",
+      completionsModel: "Completions model",
       concurrency: "Concurrency",
       interval: "Interval (sec)",
       endpointPreview: "Request endpoint",

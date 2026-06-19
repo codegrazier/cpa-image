@@ -64,8 +64,10 @@ function storeSettings(settings: Partial<AppSettings>) {
     STORAGE_KEY,
     JSON.stringify({
       baseUrl: "http://localhost:8317/v1",
-      model: "gpt-image-2",
-      llmModel: "gpt-5.4-mini",
+      generationsModel: "gpt-image-2",
+      editsModel: "gpt-image-2",
+      responsesModel: "gpt-5.4-mini",
+      completionsModel: "gpt-5.4-mini",
       rememberKey: false,
       enableCrossOriginProxy: false,
       apiKey: "test-key",
@@ -258,8 +260,10 @@ describe("App", () => {
     const user = userEvent.setup();
     storeSettings({
       baseUrl: "https://proxy.example.com/openai/v1",
-      model: "gpt-image-3",
-      llmModel: "gpt-5.6",
+      generationsModel: "gpt-image-3",
+      editsModel: "gpt-image-edit",
+      responsesModel: "gpt-5.6",
+      completionsModel: "grok-imagine-image-lite",
       rememberKey: true,
       apiKey: "proxy-key",
     });
@@ -268,9 +272,29 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: /配置/ }));
 
     expect(screen.getByDisplayValue("https://proxy.example.com/openai/v1")).toBeInTheDocument();
-    expect(screen.getByLabelText("生图模型")).toHaveValue("gpt-image-3");
-    expect(screen.getByLabelText("对话模型")).toHaveValue("gpt-5.6");
+    expect(screen.getByLabelText("generations 模型")).toHaveValue("gpt-image-3");
+    expect(screen.getByLabelText("edits 模型")).toHaveValue("gpt-image-edit");
+    expect(screen.getByLabelText("responses 模型")).toHaveValue("gpt-5.6");
+    expect(screen.getByLabelText("completions 模型")).toHaveValue("grok-imagine-image-lite");
     expect(screen.getByDisplayValue("proxy-key")).toBeInTheDocument();
+  });
+
+  test("clamps request count to the supported range on blur", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const countInput = await screen.findByLabelText("请求次数");
+
+    await user.clear(countInput);
+    await user.type(countInput, "101");
+    await user.tab();
+    expect(countInput).toHaveValue(100);
+
+    await user.click(countInput);
+    await user.clear(countInput);
+    await user.type(countInput, "0");
+    await user.tab();
+    expect(countInput).toHaveValue(1);
   });
 
   test("shows, previews, and persists the cross-origin proxy setting", async () => {
@@ -588,7 +612,11 @@ describe("App", () => {
     renderApp();
     await user.click(screen.getByRole("tab", { name: "编辑" }));
 
-    const files = Array.from({ length: 5 }, (_, index) => new File([`image-${index}`], `input-${index + 1}.png`, { type: "image/png" }));
+    const firstFile = new File(["image-0"], "input-1.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("选择本地图片"), firstFile);
+    expect(screen.getAllByRole("button", { name: /删除输入图片 \d+/ })).toHaveLength(1);
+
+    const files = Array.from({ length: 5 }, (_, index) => new File([`image-${index + 1}`], `input-${index + 2}.png`, { type: "image/png" }));
     await user.upload(screen.getByLabelText("选择本地图片"), files);
 
     expect(screen.queryByText("input-1.png")).not.toBeInTheDocument();
@@ -598,6 +626,12 @@ describe("App", () => {
     expect(previews).toHaveClass("grid");
     expect(previews).toHaveClass("grid-cols-5");
     expect(previews).toHaveClass("overflow-hidden");
+
+    expect(screen.getByLabelText("选择已生成图片")).toBeDisabled();
+    expect(screen.getByLabelText("选择本地图片")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "删除输入图片 1" }));
+    expect(screen.getByLabelText("选择本地图片")).not.toBeDisabled();
   });
 
   test("adds historical completed request images into edit inputs", async () => {
@@ -673,6 +707,38 @@ describe("App", () => {
     await user.click(screen.getByLabelText("选择已生成图片"));
 
     expect(await screen.findAllByRole("option")).toHaveLength(4);
+  });
+
+  test("shows per-image labels and thumbnails for multi-image historical requests", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }, { b64_json: WEBP_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    const requestButton = await screen.findByRole("button", { name: /查看 .* 的生成结果/ });
+    const requestTitle = requestButton.getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await user.click(screen.getByLabelText("选择已生成图片"));
+
+    expect(await screen.findByRole("option", { name: `${requestTitle}-1` })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: `${requestTitle}-2` })).toBeInTheDocument();
+
+    const listbox = screen.getByRole("listbox");
+    const thumbnails = Array.from(listbox.querySelectorAll("img")).map((image) => image.getAttribute("src"));
+    expect(thumbnails).toHaveLength(2);
+    expect(new Set(thumbnails).size).toBe(2);
   });
 
   test("keeps generate and edit prompt histories separate", async () => {
@@ -895,7 +961,7 @@ describe("App", () => {
 
   test("submits image generation requests and renders extracted images", async () => {
     const user = userEvent.setup();
-    storeSettings({ requestIntervalSeconds: 0, model: "gpt-image-custom" });
+    storeSettings({ requestIntervalSeconds: 0, generationsModel: "gpt-image-custom" });
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }], revised_prompt: "glass jellyfish, soft rim light" }), {
         status: 200,
@@ -908,7 +974,17 @@ describe("App", () => {
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
 
-    expect(await screen.findByAltText("Generated image 1")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+    const generatedImage = await screen.findByAltText("Generated image 1");
+    expect(generatedImage).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+    const rotateImageButton = screen.getByRole("button", { name: "逆时针旋转图片" });
+    await user.click(rotateImageButton);
+    expect(generatedImage).toHaveStyle({ transform: "rotate(-90deg)" });
+    await user.click(rotateImageButton);
+    expect(generatedImage).toHaveStyle({ transform: "rotate(-180deg)" });
+    await user.click(rotateImageButton);
+    expect(generatedImage).toHaveStyle({ transform: "rotate(-270deg)" });
+    await user.click(rotateImageButton);
+    expect(generatedImage).toHaveStyle({ transform: "rotate(-360deg)" });
     expect(screen.getByText(/完成于 \d{2}:\d{2}:\d{2}/)).toBeInTheDocument();
     const completedPanel = document.querySelector('section[aria-live="polite"]');
     expect(completedPanel).not.toBeNull();
@@ -960,6 +1036,60 @@ describe("App", () => {
     expect(downloads).toHaveLength(2);
     expect(downloads[0]).toMatch(/-1\.png$/);
     expect(downloads[1]).toMatch(/-2\.png$/);
+  });
+
+  test("exports all completed images as a ZIP after confirmation", async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    const toastSuccessSpy = vi.spyOn(toast, "success").mockImplementation(() => undefined as never);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:zip-download");
+    vi.spyOn(storage, "loadRequestDetails").mockResolvedValue({
+      images: [
+        {
+          src: `data:image/png;base64,${PNG_BASE64}`,
+          kind: "base64",
+          path: "$.data[0].b64_json",
+          mimeType: "image/png",
+        },
+        {
+          src: `data:image/webp;base64,${WEBP_BASE64}`,
+          kind: "base64",
+          path: "$.data[1].b64_json",
+          mimeType: "image/webp",
+        },
+      ],
+      response: null,
+      rawResponse: null,
+      thumbnail: null,
+      savedAt: Date.now(),
+    });
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }, { b64_json: WEBP_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(await screen.findByAltText("Generated image 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "导出 ZIP" }));
+
+    const confirmDialog = screen.getByRole("alertdialog", { name: "导出全部已完成图片？" });
+    expect(within(confirmDialog).getByText(/1 个已完成请求/)).toBeInTheDocument();
+    await user.click(within(confirmDialog).getByRole("button", { name: "确认导出" }));
+
+    await waitFor(() => expect(toastSuccessSpy).toHaveBeenCalledWith("已成功导出 2 张图片。"));
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.href).toBe("blob:zip-download");
+    expect(anchor.download).toMatch(/^CPA-Image-\d{6}-\d{4}\.zip$/);
   });
 
   test("blocks page unload while requests are active", async () => {
@@ -1056,6 +1186,14 @@ describe("App", () => {
 
     const secondTitle = requestButtons[1].getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
     const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    const selectedTitleBeforePromptArrow = within(resultPanel).getByText(/^260\d{3}-\d{4}-\d+$/).textContent || "";
+
+    await user.click(prompt);
+    await user.keyboard("{ArrowDown}");
+    expect(prompt).toHaveFocus();
+    expect(within(resultPanel).getByText(selectedTitleBeforePromptArrow)).toBeInTheDocument();
+
+    await user.click(requestButtons[0]);
     await user.keyboard("{ArrowDown}");
     expect(requestButtons[1]).toHaveFocus();
     expect(await within(resultPanel).findByText(secondTitle)).toBeInTheDocument();
@@ -1089,7 +1227,13 @@ describe("App", () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
     const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Failed to fetch"))
+        .mockResolvedValueOnce(new Response("", { status: 200 })),
+    );
 
     renderApp();
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
@@ -1105,11 +1249,89 @@ describe("App", () => {
     expect(within(dialog).getByText(/Failed to fetch/)).toBeInTheDocument();
   });
 
+  test("does not show the cross-origin toast when the upstream cannot be reached", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    const fetchMock = vi.fn().mockRejectedValue(new Error("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(toastErrorSpy).not.toHaveBeenCalledWith("浏览器阻止了跨域请求，请检查上游代理的 CORS 配置。");
+    expect(await screen.findByRole("button", { name: /响应 JSON/ })).toBeInTheDocument();
+  });
+
+  test("restores cached raw response JSON for failed requests after reload", async () => {
+    const user = userEvent.setup();
+    const cachedRequests: ImageRequestRecord[] = [
+      {
+        id: "failed-request",
+        title: "260613-1200-1",
+        index: 1,
+        total: 1,
+        method: "gpt-image-2",
+        endpoint: "http://localhost:8317/v1/images/generations",
+        payload: { model: "gpt-image-2", n: 1 },
+        sourcePrompt: "glass jellyfish",
+        imageCount: 0,
+        imageResolution: "",
+        imageSizeBytes: 0,
+        hasCachedDetails: true,
+        detailsMissing: false,
+        status: "error",
+        createdAt: 1000,
+        startedAt: 1000,
+        endedAt: 2000,
+        completedAt: null,
+        images: [],
+        response: null,
+        rawResponse: null,
+        error: "响应中没有找到图片输出。",
+        controller: null,
+        cancelRequested: false,
+        thumbnail: null,
+        editImages: [],
+      },
+    ];
+    const loadRequestDetailsSpy = vi.spyOn(storage, "loadRequestDetails").mockResolvedValue({
+      images: [],
+      response: null,
+      rawResponse: {
+        upstream: "original raw response marker",
+        status: "error",
+      },
+      thumbnail: null,
+      savedAt: Date.now(),
+    });
+    vi.spyOn(storage, "loadCachedRequests").mockResolvedValue(cachedRequests);
+    vi.spyOn(storage, "saveCachedRequests").mockImplementation(() => undefined);
+    vi.spyOn(storage, "saveRequestDetails").mockResolvedValue(undefined);
+
+    renderApp();
+
+    await waitFor(() => expect(loadRequestDetailsSpy).toHaveBeenCalledWith("failed-request"));
+    await user.click(await screen.findByRole("button", { name: /响应 JSON/ }));
+
+    const dialog = screen.getByRole("dialog", { name: "响应 JSON" });
+    expect(within(dialog).getByText(/original raw response marker/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/响应中没有找到图片输出/)).not.toBeInTheDocument();
+  });
+
   test("shows the cross-origin toast in English after switching languages", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
     const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Failed to fetch"))
+        .mockResolvedValueOnce(new Response("", { status: 200 })),
+    );
 
     renderApp();
     await user.click(screen.getByRole("button", { name: "切换到 English" }));
@@ -1354,6 +1576,51 @@ describe("App", () => {
     expect(body.messages[0].role).toBe("user");
     expect(body.messages[0].content).toMatch(/原始 Prompt:\nglass jellyfish/);
     expect(body.tools[0].type).toBe("image_generation");
+  });
+
+  test("shows markdown image URLs from streamed completions responses", async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:grok-preview");
+    storeSettings({ requestIntervalSeconds: 0 });
+    const imageUrl = "https://grok.example.com/v1/files/image?id=a45788dd-23fb-4bd2-8012-e1f9991fcffa";
+    const streamedBody = [
+      'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"图片正在生成 100% (1/1)\\n"}}]}',
+      `data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"delta":{"content":"![image](${imageUrl})"}}]}`,
+      'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"delta":{"content":""},"finish_reason":"stop"}]}',
+      "data: [DONE]",
+    ].join("\n\n");
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === imageUrl) {
+        return Promise.resolve(
+          new Response(new Blob(["image-bytes"], { type: "image/png" }), {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        new Response(streamedBody, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^completions$/ }));
+
+    const generatedImage = await screen.findByAltText("Generated image 1");
+    expect(generatedImage).toHaveAttribute("src", "blob:grok-preview");
+    expect(await screen.findByText("完成 · 512x512 · 0.0MB")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(imageUrl, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+    await user.click(screen.getByRole("button", { name: "下载" }));
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect((clickSpy.mock.instances[0] as HTMLAnchorElement).href).toBe("blob:grok-preview");
   });
 
   test("filters completed requests, reuses prompt, and opens response JSON", async () => {

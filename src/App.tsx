@@ -45,11 +45,12 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useImageConsole } from "@/hooks/use-image-console";
+import { useImageConsole, type ExportZipProgress } from "@/hooks/use-image-console";
 import { toast } from "sonner";
 import {
   DEFAULTS,
   MAX_EDIT_INPUT_IMAGES,
+  MAX_IMAGE_COUNT,
   MAX_PROMPT_HISTORY,
   QUALITY_OPTIONS,
   formatCompletionTime,
@@ -95,6 +96,12 @@ const SIZE_GROUPS = {
 
 function sizeOptionDisplayLabel(option: string) {
   return SIZE_OPTION_DISPLAY_LABELS[option] || option;
+}
+
+function clampRequestCountInput(value: unknown) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed)) return 1;
+  return Math.min(MAX_IMAGE_COUNT, Math.max(1, parsed));
 }
 
 function parseSizeOption(option: string) {
@@ -385,6 +392,12 @@ function RequestRow({
   );
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 function RequestListPanel({
   filteredRequests,
   selectedRequestId,
@@ -404,6 +417,7 @@ function RequestListPanel({
   onCancelRequests,
   onOpenClearCompleted,
   onOpenClearFailed,
+  onOpenExportZip,
   formatRequestTiming,
   requestImageCount,
   payloadSize,
@@ -416,6 +430,7 @@ function RequestListPanel({
   onCancelRequests: () => void;
   onOpenClearCompleted: () => void;
   onOpenClearFailed: () => void;
+  onOpenExportZip: () => void;
   extraModalOpen: boolean;
 }) {
   const { copy, language } = useI18n();
@@ -434,6 +449,7 @@ function RequestListPanel({
     function handleGlobalKeyDown(event: KeyboardEvent) {
       if (event.defaultPrevented) return;
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      if (isEditableKeyboardTarget(event.target)) return;
       if (settingsOpen || clearDialogOpen || jsonDialogOpen || extraModalOpen) return;
       if (!filteredRequests.length) return;
 
@@ -461,10 +477,33 @@ function RequestListPanel({
   return (
     <aside className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-card shadow-none" aria-label={copy.requestList}>
       <div className="flex min-h-14 items-center justify-between gap-3 border-b border-border px-4">
-        <strong className="min-w-0 flex-1 truncate text-sm leading-none">{copy.requestList}</strong>
-        <span className="shrink-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-muted-foreground">
-          {requestSummary}
-        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <strong className="shrink-0 text-sm leading-none">{copy.requestList}</strong>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="min-w-0 truncate text-xs font-medium tabular-nums text-muted-foreground">
+                {requestSummary}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{requestSummary}</TooltipContent>
+          </Tooltip>
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+              disabled={!hasDoneRequests}
+              onClick={onOpenExportZip}
+            >
+              <DownloadIcon data-icon="inline-start" />
+              {copy.exportZip.button}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{copy.exportZip.tooltip}</TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="border-b border-border bg-muted/30 px-3 py-2">
@@ -599,9 +638,17 @@ function RequestListPanel({
   );
 }
 
-function Gallery({ request, loading }: { request: ImageRequestRecord | null; loading: boolean }) {
-  const { language } = useI18n();
+function Gallery({
+  request,
+  loading,
+}: {
+  request: ImageRequestRecord | null;
+  loading: boolean;
+}) {
+  const { copy, language } = useI18n();
   const images = request?.status === "done" && !request.detailsMissing ? request.images : [];
+  const requestId = request?.id || "";
+  const [rotationByImageKey, setRotationByImageKey] = useState<Record<string, number>>({});
   const isDetailLoading = Boolean(
     request &&
       request.status === "done" &&
@@ -610,6 +657,10 @@ function Gallery({ request, loading }: { request: ImageRequestRecord | null; loa
       (loading || request.hasCachedDetails),
   );
   const displayImageCount = request?.status === "done" && !request.detailsMissing ? images.length : 0;
+
+  useEffect(() => {
+    setRotationByImageKey({});
+  }, [requestId]);
 
   if (isDetailLoading) {
     return (
@@ -649,18 +700,43 @@ function Gallery({ request, loading }: { request: ImageRequestRecord | null; loa
     >
       {Array.from({ length: displayImageCount }, (_, index) => {
         const image = images[index] || null;
+        const imageKey = `${requestId || "empty"}-${index}`;
+        const rotation = rotationByImageKey[imageKey] || 0;
         return (
           <article
-            key={`${request?.id || "empty"}-${index}`}
-            className="image-checkerboard relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg border"
+            key={imageKey}
+            className="image-checkerboard group relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg border"
           >
             {image ? (
-              <img
-                src={image.src}
-                alt={`Generated image ${index + 1}`}
-                loading="lazy"
-                className="block max-h-full max-w-full object-contain"
-              />
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon-xs"
+                      aria-label={copy.requestCardStatus.rotateCounterclockwise}
+                      className="absolute top-2 right-2 z-10 border border-border/70 bg-background/85 opacity-0 shadow-sm backdrop-blur transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+                      onClick={() =>
+                        setRotationByImageKey((current) => ({
+                          ...current,
+                          [imageKey]: (current[imageKey] || 0) - 90,
+                        }))
+                      }
+                    >
+                      <RotateCcwIcon />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent sideOffset={8}>{copy.requestCardStatus.rotateCounterclockwise}</TooltipContent>
+                </Tooltip>
+                <img
+                  src={image.src}
+                  alt={`Generated image ${index + 1}`}
+                  loading="lazy"
+                  className="block max-h-full max-w-full object-contain transition-transform duration-200"
+                  style={{ transform: `rotate(${rotation}deg)` }}
+                />
+              </>
             ) : (
               <div className="flex h-full w-full items-center justify-center">
                 {loading ? <Loader2Icon className="size-5 animate-spin text-muted-foreground" /> : <ImageIcon className="size-6 text-muted-foreground" />}
@@ -965,6 +1041,7 @@ function GeneratorPanel({
   } = consoleState;
   const editImagesInputRef = useRef<HTMLInputElement>(null);
   const generationButtonFeedbackClassName = "transition-all duration-100 active:translate-y-px active:scale-[0.99] active:brightness-95";
+  const editImageSelectionFull = editImages.length >= MAX_EDIT_INPUT_IMAGES;
 
   function submitGeneration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -980,18 +1057,21 @@ function GeneratorPanel({
     const files = Array.from(event.currentTarget.files || []);
     if (!files.length) return;
 
-    if (files.length > MAX_EDIT_INPUT_IMAGES) {
+    const remainingSlots = Math.max(0, MAX_EDIT_INPUT_IMAGES - editImages.length);
+    if (files.length > remainingSlots) {
       toast.error(copy.generator.maxEditImages(MAX_EDIT_INPUT_IMAGES));
     }
 
-    const nextImages: EditInputImage[] = files.slice(0, MAX_EDIT_INPUT_IMAGES).map((file) => ({
+    const nextImages: EditInputImage[] = files.slice(0, remainingSlots).map((file) => ({
       src: URL.createObjectURL(file),
       name: file.name,
       mimeType: file.type || "application/octet-stream",
       file,
     }));
 
-    setEditImages(nextImages);
+    if (nextImages.length) {
+      setEditImages((current) => [...current, ...nextImages].slice(0, MAX_EDIT_INPUT_IMAGES));
+    }
     event.currentTarget.value = "";
   }
 
@@ -1060,7 +1140,11 @@ function GeneratorPanel({
                   void addHistoricalEditImage(value);
                 }}
               >
-                <SelectTrigger id="historicalEditImages" className="w-full" disabled={!historicalEditImageOptions.length}>
+                <SelectTrigger
+                  id="historicalEditImages"
+                  className="w-full"
+                  disabled={!historicalEditImageOptions.length || editImageSelectionFull}
+                >
                   <SelectValue placeholder={copy.generator.choose} />
                 </SelectTrigger>
                 <SelectContent>
@@ -1101,6 +1185,7 @@ function GeneratorPanel({
               <button
                 type="button"
                 className="flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap text-muted-foreground shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground"
+                disabled={editImageSelectionFull}
                 onClick={() => editImagesInputRef.current?.click()}
               >
                 <span className="min-w-0 flex-1 truncate text-left">{copy.generator.choose}</span>
@@ -1112,6 +1197,7 @@ function GeneratorPanel({
                 type="file"
                 accept="image/*"
                 multiple
+                disabled={editImageSelectionFull}
                 onChange={handleEditImagesChange}
                 className="hidden"
               />
@@ -1182,6 +1268,7 @@ function GeneratorPanel({
             inputMode="numeric"
             value={settings.n}
             onChange={(event) => updateSettings("n", event.target.value)}
+            onBlur={(event) => updateSettings("n", clampRequestCountInput(event.target.value))}
           />
         </Field>
         <Field className="gap-2 self-end">
@@ -1336,23 +1423,43 @@ function SettingsDialog(
             </Field>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field>
-                <FieldLabel htmlFor="model">{copy.settings.generationModel}</FieldLabel>
+                <FieldLabel htmlFor="generationsModel">{copy.settings.generationsModel}</FieldLabel>
                 <Input
-                  id="model"
+                  id="generationsModel"
                   type="text"
                   spellCheck={false}
-                  value={settings.model}
-                  onChange={(event) => updateSettings("model", event.target.value)}
+                  value={settings.generationsModel}
+                  onChange={(event) => updateSettings("generationsModel", event.target.value)}
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="llmModel">{copy.settings.llmModel}</FieldLabel>
+                <FieldLabel htmlFor="editsModel">{copy.settings.editsModel}</FieldLabel>
                 <Input
-                  id="llmModel"
+                  id="editsModel"
                   type="text"
                   spellCheck={false}
-                  value={settings.llmModel}
-                  onChange={(event) => updateSettings("llmModel", event.target.value)}
+                  value={settings.editsModel}
+                  onChange={(event) => updateSettings("editsModel", event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="responsesModel">{copy.settings.responsesModel}</FieldLabel>
+                <Input
+                  id="responsesModel"
+                  type="text"
+                  spellCheck={false}
+                  value={settings.responsesModel}
+                  onChange={(event) => updateSettings("responsesModel", event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="completionsModel">{copy.settings.completionsModel}</FieldLabel>
+                <Input
+                  id="completionsModel"
+                  type="text"
+                  spellCheck={false}
+                  value={settings.completionsModel}
+                  onChange={(event) => updateSettings("completionsModel", event.target.value)}
                 />
               </Field>
             </div>
@@ -1504,6 +1611,70 @@ function ClearRequestsDialog({
   );
 }
 
+function ExportZipConfirmDialog({
+  open,
+  completedCount,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  completedCount: number;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const { copy } = useI18n();
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{copy.exportZip.title}</AlertDialogTitle>
+          <AlertDialogDescription>{copy.exportZip.description(completedCount)}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{copy.clearDialog.cancel}</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>{copy.exportZip.confirm}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function ExportZipProgressDialog({
+  open,
+  progress,
+}: {
+  open: boolean;
+  progress: ExportZipProgress;
+}) {
+  const { copy } = useI18n();
+  const percent = progress.total > 0 ? Math.min(100, Math.round((progress.current / progress.total) * 100)) : 0;
+
+  return (
+    <Dialog open={open}>
+      <DialogContent
+        className="sm:max-w-md"
+        showCloseButton={false}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>{copy.exportZip.progressTitle}</DialogTitle>
+          <DialogDescription>{copy.exportZip.progressDescription}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+            <span>{copy.exportZip.progressStatus(progress.current, progress.total)}</span>
+            <span className="tabular-nums">{percent}%</span>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ResponseJsonDialog({
   open,
   json,
@@ -1516,16 +1687,16 @@ function ResponseJsonDialog({
   const { copy } = useI18n();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden p-0 sm:max-w-5xl">
-        <DialogHeader className="border-b px-5 py-4">
+      <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-5xl">
+        <DialogHeader className="min-w-0 border-b px-5 py-4">
           <DialogTitle>{copy.responseJson.title}</DialogTitle>
           <DialogDescription className="sr-only">{copy.responseJson.description}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[calc(100vh-8rem)]">
-          <pre className="min-h-96 whitespace-pre-wrap break-words bg-foreground p-5 text-xs leading-relaxed text-background">
+        <div className="min-h-0 min-w-0 overflow-auto">
+          <pre className="min-h-96 max-w-full whitespace-pre-wrap break-all bg-foreground p-5 text-xs leading-relaxed text-background">
             {json}
           </pre>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -1538,6 +1709,31 @@ export default function App() {
   const [clearFailedDialogOpen, setClearFailedDialogOpen] = useState(false);
   const [clearCompletedDialogOpen, setClearCompletedDialogOpen] = useState(false);
   const [strictPromptEditorOpen, setStrictPromptEditorOpen] = useState(false);
+  const [exportZipConfirmOpen, setExportZipConfirmOpen] = useState(false);
+  const [exportZipProgressOpen, setExportZipProgressOpen] = useState(false);
+  const [exportZipProgress, setExportZipProgress] = useState<ExportZipProgress>({ current: 0, total: 0 });
+  const extraModalOpen =
+    cancelRequestsDialogOpen ||
+    clearFailedDialogOpen ||
+    clearCompletedDialogOpen ||
+    strictPromptEditorOpen ||
+    exportZipConfirmOpen ||
+    exportZipProgressOpen;
+
+  async function handleExportZipConfirm() {
+    setExportZipConfirmOpen(false);
+    setExportZipProgress({ current: 0, total: 0 });
+    setExportZipProgressOpen(true);
+
+    try {
+      const result = await consoleState.exportCompletedImagesZip(setExportZipProgress);
+      setExportZipProgressOpen(false);
+      toast.success(copy.exportZip.success(result.count));
+    } catch (error) {
+      setExportZipProgressOpen(false);
+      toast.error((error as Error).message || copy.exportZip.failed);
+    }
+  }
 
   return (
     <>
@@ -1552,7 +1748,8 @@ export default function App() {
           onCancelRequests={() => setCancelRequestsDialogOpen(true)}
           onOpenClearCompleted={() => setClearCompletedDialogOpen(true)}
           onOpenClearFailed={() => setClearFailedDialogOpen(true)}
-          extraModalOpen={cancelRequestsDialogOpen || clearFailedDialogOpen || clearCompletedDialogOpen || strictPromptEditorOpen}
+          onOpenExportZip={() => setExportZipConfirmOpen(true)}
+          extraModalOpen={extraModalOpen}
         />
         <ResultPanel {...consoleState} />
         <GeneratorPanel
@@ -1572,6 +1769,13 @@ export default function App() {
           consoleState.updateSettings("strictPromptText", value);
         }}
       />
+      <ExportZipConfirmDialog
+        open={exportZipConfirmOpen}
+        completedCount={consoleState.requestCounts.done}
+        onOpenChange={setExportZipConfirmOpen}
+        onConfirm={handleExportZipConfirm}
+      />
+      <ExportZipProgressDialog open={exportZipProgressOpen} progress={exportZipProgress} />
       <ClearRequestsDialog
         open={consoleState.clearDialogOpen}
         onOpenChange={consoleState.setClearDialogOpen}

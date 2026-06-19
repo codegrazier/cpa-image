@@ -117,7 +117,7 @@ describe("image console logic", () => {
   test("uses configurable image model for base64 payloads", () => {
     expect(
       buildPayload({
-        model: "custom-image-model",
+        generationsModel: "custom-image-model",
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
@@ -141,7 +141,7 @@ describe("image console logic", () => {
 
   test("uses configurable responses image_generation model", () => {
     const payload = buildResponsesImagePayload({
-      llmModel: "gpt-5.6",
+      responsesModel: "gpt-5.6",
       prompt: "glass jellyfish",
       strictPrompt: false,
       n: 1,
@@ -156,7 +156,7 @@ describe("image console logic", () => {
     const file = new File(["image-bytes"], "input.png", { type: "image/png" });
     const payload = buildEditImagePayload(
       {
-        model: "gpt-image-3",
+        editsModel: "gpt-image-3",
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
@@ -229,7 +229,7 @@ describe("image console logic", () => {
   test("builds chat completions image payload with messages and image tool options", () => {
     expect(
       buildChatCompletionsImagePayload({
-        llmModel: "gpt-5.6",
+        completionsModel: "gpt-5.6",
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
@@ -263,7 +263,7 @@ describe("image console logic", () => {
 
   test("adds strict prompt policy by default", () => {
     const payload = buildPayload({
-      model: "gpt-image-2",
+      generationsModel: "gpt-image-2",
       prompt: "glass jellyfish",
       n: 1,
     });
@@ -807,7 +807,7 @@ describe("image console logic", () => {
   test("rejects transparent jpeg payloads", () => {
     expect(() =>
       buildPayload({
-        model: "gpt-image-2",
+        generationsModel: "gpt-image-2",
         prompt: "logo",
         background: "transparent",
         outputFormat: "jpeg",
@@ -832,6 +832,40 @@ describe("image console logic", () => {
     expect(images[1].src).toBe("https://cdn.example.com/image.png");
     expect(images[2].src.startsWith("data:image/webp;base64,")).toBe(true);
     expect(images.some((image) => image.path === "$.data[0].url")).toBe(false);
+  });
+
+  test("extracts markdown image URLs from streamed chat completion text", () => {
+    const response = [
+      'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"图片正在生成 100% (1/1)\\n"}}]}',
+      'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"delta":{"content":"![image](https://grok.example.com/v1/files/image?id=a45788dd-23fb-4bd2-8012-e1f9991fcffa)"}}]}',
+      "data: [DONE]",
+    ].join("\n\n");
+
+    const images = extractImages(response, "png");
+
+    expect(images).toEqual([
+      {
+        src: "https://grok.example.com/v1/files/image?id=a45788dd-23fb-4bd2-8012-e1f9991fcffa",
+        kind: "url",
+        path: "$.markdownImage[0]",
+        mimeType: undefined,
+      },
+    ]);
+  });
+
+  test("extracts markdown image URLs from parsed chat completion content", () => {
+    const images = extractImages({
+      choices: [
+        {
+          message: {
+            content: "已生成：![image](https://grok.example.com/v1/files/image?id=parsed)",
+          },
+        },
+      ],
+    });
+
+    expect(images[0]?.src).toBe("https://grok.example.com/v1/files/image?id=parsed");
+    expect(images[0]?.path).toBe("$.choices[0].message.content.markdownImage[0]");
   });
 
   test("prepares base64 images as blobs for cache and object URLs for runtime", () => {

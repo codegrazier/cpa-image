@@ -16,9 +16,11 @@ import {
   DEFAULTS,
   extractImages,
   formatRequestTiming,
+  formatBatchPrefix,
   generationMethodDisplayName,
   imageCountFromValue,
   imageDownloadName,
+  imageBlobFromDataUrl,
   missingImageOutputMessage,
   mergePromptHistoryForDisplay,
   prepareImageForDetailCacheWithDimensions,
@@ -63,6 +65,7 @@ import {
   isDefaultStrictPromptText,
   unpinPromptHistory,
 } from "@/lib/image-console";
+import { createZipBlob, type ZipFileEntry } from "@/lib/zip";
 import {
   clearCachedRequests,
   loadCachedRequests,
@@ -90,6 +93,11 @@ interface StatusMessage {
   detail: string;
 }
 
+export interface ExportZipProgress {
+  current: number;
+  total: number;
+}
+
 function normalizeSettings(values: AppSettings, defaultStrictPromptText: string): AppSettings {
   const strictPromptText = normalizeStrictPromptText(values.strictPromptText);
   const normalizedStrictPromptText = isDefaultStrictPromptText(strictPromptText)
@@ -99,8 +107,10 @@ function normalizeSettings(values: AppSettings, defaultStrictPromptText: string)
   return {
     ...DEFAULTS,
     ...values,
-    model: String(values.model || DEFAULTS.model).trim(),
-    llmModel: String(values.llmModel || DEFAULTS.llmModel).trim(),
+    generationsModel: String(values.generationsModel || DEFAULTS.generationsModel).trim(),
+    editsModel: String(values.editsModel || DEFAULTS.editsModel).trim(),
+    responsesModel: String(values.responsesModel || DEFAULTS.responsesModel).trim(),
+    completionsModel: String(values.completionsModel || DEFAULTS.completionsModel).trim(),
     rememberKey: Boolean(values.rememberKey),
     enableCrossOriginProxy: Boolean(values.enableCrossOriginProxy),
     strictPromptText: normalizedStrictPromptText,
@@ -124,7 +134,7 @@ function formatResponseJsonText(value: unknown) {
   return JSON.stringify(sanitizeResponseForDisplay(value), null, 2);
 }
 
-function isCrossOriginFetchFailure(endpoint: string, error: unknown) {
+function isFetchNetworkFailure(error: unknown) {
   const message =
     error && typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string"
       ? String((error as { message: string }).message).trim().toLowerCase()
@@ -142,8 +152,32 @@ function isCrossOriginFetchFailure(endpoint: string, error: unknown) {
     return false;
   }
 
+  return true;
+}
+
+async function isCrossOriginFetchFailure(endpoint: string, error: unknown) {
+  if (!isFetchNetworkFailure(error)) return false;
+
   try {
-    return new URL(endpoint, window.location.href).origin !== window.location.origin;
+    const url = new URL(endpoint, window.location.href);
+    if (url.origin === window.location.origin) return false;
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 2000);
+
+    try {
+      await fetch(url.toString(), {
+        method: "HEAD",
+        mode: "no-cors",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
   } catch {
     return false;
   }
@@ -277,6 +311,98 @@ async function prepareThumbnailFromImage(image: GeneratedImage): Promise<Generat
         } as GeneratedImage)
       : null;
   }
+}
+
+async function hydrateUrlImageBlob(image: GeneratedImage, signal: AbortSignal): Promise<GeneratedImage> {
+  if (image.kind !== "url" || !/^https?:\/\//i.test(image.src)) return image;
+
+  try {
+    const response = await fetch(image.src, { signal });
+    if (!response.ok) return image;
+
+    const blob = await response.blob();
+    if (!blob.size) return image;
+
+    return {
+      ...image,
+      mimeType: blob.type || image.mimeType,
+      blob,
+    };
+  } catch {
+    return image;
+  }
+}
+
+function extensionFromMimeType(mimeType: unknown) {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
+  if (normalized.includes("webp")) return "webp";
+  if (normalized.includes("gif")) return "gif";
+  return "png";
+}
+
+async function blobFromGeneratedImage(image: GeneratedImage) {
+  if (image.blob instanceof Blob) return image.blob;
+  if (String(image.src || "").startsWith("blob:")) {
+    try {
+      const response = await fetch(image.src);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return blob.size ? blob : null;
+    } catch {
+      return null;
+    }
+  }
+  if (image.kind === "base64") return imageBlobFromDataUrl(image.src, extensionFromMimeType(image.mimeType));
+
+  try {
+    const response = await fetch(image.src);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return blob.size ? blob : null;
+  } catch {
+    return null;
+  }
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  if (typeof document === "undefined" || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return;
+
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+
+  window.setTimeout(() => {
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // Ignore object URL cleanup failures.
+    }
+  }, 0);
+}
+
+function uniqueZipEntryName(name: string, usedNames: Set<string>) {
+  if (!usedNames.has(name)) {
+    usedNames.add(name);
+    return name;
+  }
+
+  const dotIndex = name.lastIndexOf(".");
+  const base = dotIndex > 0 ? name.slice(0, dotIndex) : name;
+  const extension = dotIndex > 0 ? name.slice(dotIndex) : "";
+  let index = 2;
+
+  while (usedNames.has(`${base}-${index}${extension}`)) {
+    index += 1;
+  }
+
+  const nextName = `${base}-${index}${extension}`;
+  usedNames.add(nextName);
+  return nextName;
 }
 
 function initialStoredSettings(): StoredConsoleSettings {
@@ -538,7 +664,7 @@ export function useImageConsole() {
     }
 
     const currentSelected = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
-    if (currentSelected && (currentSelected.images.length || currentSelected.response != null)) {
+    if (currentSelected && (currentSelected.images.length || currentSelected.response != null || currentSelected.rawResponse != null)) {
       retainRequestDetail(selectedRequestId);
     }
 
@@ -549,11 +675,13 @@ export function useImageConsole() {
     const latestSelected = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
     if (
       !latestSelected ||
-      latestSelected.status !== "done" ||
+      latestSelected.status === "queued" ||
+      latestSelected.status === "running" ||
       !latestSelected.hasCachedDetails ||
       latestSelected.detailsMissing ||
       latestSelected.images.length ||
-      latestSelected.response != null
+      latestSelected.response != null ||
+      latestSelected.rawResponse != null
     ) {
       setSelectedRequestDetailLoadingId(null);
       return () => {
@@ -759,15 +887,16 @@ export function useImageConsole() {
           ...image,
           path: `${request.title} · ${image.path}`,
         }));
+        const localImages = await Promise.all(extractedImages.map((image) => hydrateUrlImageBlob(image, controller.signal)));
         const detailImages = (
-          await Promise.all(extractedImages.map((image) => prepareImageForDetailCacheWithDimensions(image)))
+          await Promise.all(localImages.map((image) => prepareImageForDetailCacheWithDimensions(image)))
         ).filter(isGeneratedImage);
         const imageSizeBytes = detailImages.reduce((sum, image) => sum + (image.blob?.size || 0), 0);
         const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
         const runtimeSourceImages =
-          detailImages.length === extractedImages.length && detailImages.length > 0 ? detailImages : extractedImages;
+          detailImages.length === localImages.length && detailImages.length > 0 ? detailImages : localImages;
         const images = shouldKeepRuntimeDetails ? runtimeSourceImages.map(prepareImageForRuntime) : [];
-        const thumbnail = extractedImages[0] ? await prepareThumbnailFromImage(extractedImages[0]) : null;
+        const thumbnail = localImages[0] ? await prepareThumbnailFromImage(localImages[0]) : null;
         const displayResponse = sanitizeResponseForDisplay(body);
         const missingImageMessage = extractedImages.length ? "" : missingImageOutputMessage(body, language);
 
@@ -814,7 +943,7 @@ export function useImageConsole() {
       } catch (error) {
         const typedError = error as Error & { responseBody?: unknown };
         const failedRequest = requestRecordsRef.current.find((item) => item.id === requestId);
-        if (failedRequest && isCrossOriginFetchFailure(failedRequest.endpoint, typedError)) {
+        if (failedRequest && await isCrossOriginFetchFailure(failedRequest.endpoint, typedError)) {
           toast.error(copy.runtime.crossOriginRequestFailed);
         }
         commitRecords((records) =>
@@ -961,27 +1090,36 @@ export function useImageConsole() {
         const count = requestImageCount(request);
         return Array.from({ length: count }, (_, imageIndex) => ({
           value: `${request.id}:${imageIndex}`,
-          label: request.title,
-          thumbnail: request.thumbnail || null,
+          label: count > 1 ? `${request.title}-${imageIndex + 1}` : request.title,
+          thumbnail: request.images[imageIndex] || request.thumbnail || null,
           requestId: request.id,
           requestTitle: request.title,
           imageIndex,
         }));
       });
-  }, [requestRecords]);
+  }, [copy, requestRecords]);
 
   const endpointPreview = useMemo(() => {
     const baseUrl = settings.baseUrl || DEFAULTS.baseUrl;
-    const imageModel = String(settings.model || DEFAULTS.model).trim();
-    const llmModel = String(settings.llmModel || DEFAULTS.llmModel).trim();
+    const generationsModel = String(settings.generationsModel || DEFAULTS.generationsModel).trim();
+    const editsModel = String(settings.editsModel || DEFAULTS.editsModel).trim();
+    const responsesModel = String(settings.responsesModel || DEFAULTS.responsesModel).trim();
+    const completionsModel = String(settings.completionsModel || DEFAULTS.completionsModel).trim();
     const enableCrossOriginProxy = Boolean(settings.enableCrossOriginProxy);
     return [
-      `generations (${imageModel})\n${normalizeImageEndpoint(baseUrl, enableCrossOriginProxy)}`,
-      `edits (${imageModel})\n${normalizeImageEditsEndpoint(baseUrl, enableCrossOriginProxy)}`,
-      `responses (${llmModel})\n${normalizeResponsesEndpoint(baseUrl, enableCrossOriginProxy)}`,
-      `completions (${llmModel})\n${normalizeChatCompletionsEndpoint(baseUrl, enableCrossOriginProxy)}`,
+      `generations (${generationsModel})\n${normalizeImageEndpoint(baseUrl, enableCrossOriginProxy)}`,
+      `edits (${editsModel})\n${normalizeImageEditsEndpoint(baseUrl, enableCrossOriginProxy)}`,
+      `responses (${responsesModel})\n${normalizeResponsesEndpoint(baseUrl, enableCrossOriginProxy)}`,
+      `completions (${completionsModel})\n${normalizeChatCompletionsEndpoint(baseUrl, enableCrossOriginProxy)}`,
     ].join("\n\n");
-  }, [settings.baseUrl, settings.enableCrossOriginProxy, settings.llmModel, settings.model]);
+  }, [
+    settings.baseUrl,
+    settings.completionsModel,
+    settings.editsModel,
+    settings.enableCrossOriginProxy,
+    settings.generationsModel,
+    settings.responsesModel,
+  ]);
 
   const selectedRequestJson = useMemo(() => {
     if (!selectedRequest) return "";
@@ -1140,8 +1278,10 @@ export function useImageConsole() {
         key === "apiKey" ||
         key === "rememberKey" ||
         key === "enableCrossOriginProxy" ||
-        key === "model" ||
-        key === "llmModel" ||
+        key === "generationsModel" ||
+        key === "editsModel" ||
+        key === "responsesModel" ||
+        key === "completionsModel" ||
         key === "strictPromptText" ||
         key === "requestConcurrency" ||
         key === "requestIntervalSeconds"
@@ -1182,7 +1322,7 @@ export function useImageConsole() {
     setConnectionStatus({ label: copy.tests.connectionSaved, tone: "ok" });
     setStatusMessage({
       state: copy.tests.connectionSaved,
-      detail: `${copy.requestSummary(normalized)} · ${copy.settings.generationModel} ${normalized.model} · ${copy.settings.llmModel} ${normalized.llmModel}`,
+      detail: `${copy.requestSummary(normalized)} · ${copy.settings.generationsModel} ${normalized.generationsModel} · ${copy.settings.editsModel} ${normalized.editsModel} · ${copy.settings.responsesModel} ${normalized.responsesModel} · ${copy.settings.completionsModel} ${normalized.completionsModel}`,
     });
     clearQueueTimer();
     setSettingsOpen(false);
@@ -1217,7 +1357,7 @@ export function useImageConsole() {
       setTestConnectionStatus({ label: copy.tests.connectionNormal, tone: "ok" });
       setStatusMessage({ state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail });
     } catch (error) {
-      if (isCrossOriginFetchFailure(endpoint, error)) {
+      if (await isCrossOriginFetchFailure(endpoint, error)) {
         toast.error(copy.runtime.crossOriginRequestFailed);
       }
       setTestConnectionStatus({ label: copy.tests.connectionFailed, tone: "error" });
@@ -1536,6 +1676,54 @@ export function useImageConsole() {
     [copy, setPrompt],
   );
 
+  const exportCompletedImagesZip = useCallback(
+    async (onProgress?: (progress: ExportZipProgress) => void) => {
+      const completedRequests = sortedRequestRecordsForFilter(requestRecordsRef.current, "done");
+      const imageItems: Array<{ request: ImageRequestRecord; image: GeneratedImage; index: number }> = [];
+
+      for (const request of completedRequests) {
+        let images = request.images || [];
+
+        if (request.hasCachedDetails && !request.detailsMissing) {
+          const detail = await loadRequestDetails(request.id);
+          if (detail?.images?.length) {
+            images = detail.images;
+          }
+        }
+
+        images.forEach((image, index) => {
+          imageItems.push({ request, image, index });
+        });
+      }
+
+      onProgress?.({ current: 0, total: imageItems.length });
+
+      const entries: ZipFileEntry[] = [];
+      const usedNames = new Set<string>();
+
+      for (const [index, item] of imageItems.entries()) {
+        const blob = await blobFromGeneratedImage(item.image);
+        if (blob) {
+          entries.push({
+            name: uniqueZipEntryName(imageDownloadName(item.request, item.index), usedNames),
+            blob,
+          });
+        }
+        onProgress?.({ current: index + 1, total: imageItems.length });
+      }
+
+      if (!entries.length) {
+        throw new Error(copy.exportZip.noImages);
+      }
+
+      const filename = `CPA-Image-${formatBatchPrefix()}.zip`;
+      const zipBlob = await createZipBlob(entries);
+      downloadBlob(zipBlob, filename);
+      return { count: entries.length, filename };
+    },
+    [copy],
+  );
+
   const selectedRequestDownload = selectedRequest?.images?.[0]?.src
     ? {
         href: selectedRequest.images[0].src,
@@ -1600,6 +1788,7 @@ export function useImageConsole() {
     clearAllRequests,
     clearCompletedRequests,
     clearFailedRequests,
+    exportCompletedImagesZip,
     reusePrompt,
     selectPromptHistory,
     deletePromptHistory,

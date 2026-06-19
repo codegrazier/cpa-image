@@ -78,7 +78,10 @@ function normalizeStoredSettings(raw: unknown): StoredConsoleSettings {
 
   const legacySharedSource = {
     ...raw,
-    llmModel: raw.llmModel || raw.imageGenerationModel || DEFAULTS.llmModel,
+    generationsModel: raw.generationsModel || raw.model,
+    editsModel: raw.editsModel || raw.model,
+    responsesModel: raw.responsesModel || raw.llmModel || raw.imageGenerationModel,
+    completionsModel: raw.completionsModel || raw.llmModel || raw.imageGenerationModel,
   };
 
   const shared = normalizeSharedSettings(nestedShared || legacySharedSource);
@@ -138,8 +141,10 @@ export function saveSettings(values: StoredConsoleSettings) {
     shared: normalized.shared,
     modeSettingsByMode: normalized.modeSettingsByMode,
     baseUrl: normalized.shared.baseUrl,
-    model: normalized.shared.model,
-    llmModel: normalized.shared.llmModel,
+    generationsModel: normalized.shared.generationsModel,
+    editsModel: normalized.shared.editsModel,
+    responsesModel: normalized.shared.responsesModel,
+    completionsModel: normalized.shared.completionsModel,
     rememberKey: normalized.shared.rememberKey,
     enableCrossOriginProxy: normalized.shared.enableCrossOriginProxy,
     requestConcurrency: normalized.shared.requestConcurrency,
