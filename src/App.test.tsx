@@ -760,6 +760,11 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "删除输入图片 1" }));
     expect(screen.queryByTestId("edit-image-preview-strip")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "生图" }));
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveFocus());
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveFocus());
   });
 
   test("shows all completed request images in the historical edit selector", async () => {
@@ -862,6 +867,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("tab", { name: "编辑" }));
     expect(screen.getByLabelText("Prompt")).toHaveValue("");
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveFocus());
     expect(screen.getByPlaceholderText("例如：保留原图主体，只调整光影和风格")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Prompt"), "edit draft");
     expect(screen.getByLabelText("Prompt")).toHaveValue("edit draft");
@@ -872,6 +878,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("tab", { name: "编辑" }));
     expect(screen.getByLabelText("Prompt")).toHaveValue("edit draft");
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveFocus());
   });
 
   test("keeps generate and edit generation settings separate", async () => {

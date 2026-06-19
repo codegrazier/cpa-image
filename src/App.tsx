@@ -1040,16 +1040,17 @@ function StrictPromptEditorDialog({
 
 function GeneratorPanel({
   onOpenStrictPromptEditor,
-  editPromptFocusSignal,
+  promptFocusSignal,
+  onModeChange,
   ...consoleState
 }: ReturnType<typeof useImageConsole> & {
   onOpenStrictPromptEditor: () => void;
-  editPromptFocusSignal: number;
+  promptFocusSignal: number;
+  onModeChange: (mode: ConsoleMode) => void;
 }) {
   const { copy, toggleLanguage } = useI18n();
   const {
     mode,
-    setMode,
     editImages,
     setEditImages,
     historicalEditImageValue,
@@ -1076,14 +1077,14 @@ function GeneratorPanel({
   const editImageSelectionFull = editImages.length >= MAX_EDIT_INPUT_IMAGES;
 
   useEffect(() => {
-    if (mode !== "edit" || editPromptFocusSignal <= 0) return;
+    if (promptFocusSignal <= 0) return;
 
     const timeoutId = window.setTimeout(() => {
       promptTextareaRef.current?.focus();
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [editPromptFocusSignal, mode]);
+  }, [promptFocusSignal]);
 
   function submitGeneration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1118,15 +1119,7 @@ function GeneratorPanel({
   }
 
   function handleModeChange(value: string) {
-    const nextMode = value as ConsoleMode;
-    const shouldFocusGeneratePrompt = mode === "edit" && nextMode === "generate";
-    setMode(nextMode);
-
-    if (!shouldFocusGeneratePrompt) return;
-
-    window.setTimeout(() => {
-      promptTextareaRef.current?.focus();
-    }, 0);
+    onModeChange(value as ConsoleMode);
   }
 
   return (
@@ -1760,7 +1753,7 @@ function ResponseJsonDialog({
 export default function App() {
   const { copy } = useI18n();
   const consoleState = useImageConsole();
-  const [editPromptFocusSignal, setEditPromptFocusSignal] = useState(0);
+  const [promptFocusSignal, setPromptFocusSignal] = useState(0);
   const [cancelRequestsDialogOpen, setCancelRequestsDialogOpen] = useState(false);
   const [clearFailedDialogOpen, setClearFailedDialogOpen] = useState(false);
   const [clearCompletedDialogOpen, setClearCompletedDialogOpen] = useState(false);
@@ -1791,9 +1784,17 @@ export default function App() {
     }
   }
 
+  function handleModeChange(mode: ConsoleMode) {
+    const shouldFocusPrompt = consoleState.mode !== mode;
+    consoleState.setMode(mode);
+
+    if (shouldFocusPrompt) {
+      setPromptFocusSignal((current) => current + 1);
+    }
+  }
+
   function handleEditImage(value: string) {
-    consoleState.setMode("edit");
-    setEditPromptFocusSignal((current) => current + 1);
+    handleModeChange("edit");
     void consoleState.addHistoricalEditImage(value);
   }
 
@@ -1816,7 +1817,8 @@ export default function App() {
         <ResultPanel {...consoleState} onEditImage={handleEditImage} />
         <GeneratorPanel
           {...consoleState}
-          editPromptFocusSignal={editPromptFocusSignal}
+          promptFocusSignal={promptFocusSignal}
+          onModeChange={handleModeChange}
           onOpenStrictPromptEditor={() => {
             setStrictPromptEditorOpen(true);
           }}
