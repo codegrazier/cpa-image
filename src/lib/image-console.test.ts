@@ -121,7 +121,7 @@ describe("image console logic", () => {
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
-        size: "1254x1254",
+        size: "1024x1024",
         quality: "high",
         background: "opaque",
         outputFormat: "webp",
@@ -130,7 +130,7 @@ describe("image console logic", () => {
       model: "custom-image-model",
       prompt: "glass jellyfish",
       n: 2,
-      size: "1254x1254",
+      size: "1024x1024",
       quality: "high",
       background: "opaque",
       output_format: "webp",
@@ -320,13 +320,13 @@ describe("image console logic", () => {
       model: "gpt-image-2",
       prompt: "glass jellyfish",
       n: 3,
-      size: "1254x1254",
+      size: "1024x1024",
     };
 
     expect(buildGenerationRequests(payload)).toEqual([
-      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1254x1254" },
-      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1254x1254" },
-      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1254x1254" },
+      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1024x1024" },
+      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1024x1024" },
+      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1024x1024" },
     ]);
   });
 
@@ -347,7 +347,7 @@ describe("image console logic", () => {
       prompt: "glass jellyfish",
       strictPrompt: false,
       n: 3,
-      size: "1254x1254",
+      size: "1024x1024",
       outputFormat: "png",
     });
 
@@ -364,7 +364,7 @@ describe("image console logic", () => {
       prompt: "glass jellyfish",
       strictPrompt: false,
       n: 3,
-      size: "1254x1254",
+      size: "1024x1024",
       outputFormat: "png",
     });
 
@@ -384,7 +384,7 @@ describe("image console logic", () => {
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 3,
-        size: "1254x1254",
+        size: "1024x1024",
         outputFormat: "png",
       },
       [{ src: "blob:preview", name: "input.png", mimeType: "image/png", file: new File(["x"], "input.png") }],
