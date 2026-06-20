@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { toast } from "sonner";
@@ -1039,6 +1039,8 @@ describe("App", () => {
     const requestId = requestButton.getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
 
     await user.click(screen.getByRole("button", { name: `删除 ${requestId}` }));
+    expect(deleteRequestDetailsSpy).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: `再次点击确认删除 ${requestId}` }));
 
     await waitFor(() => expect(deleteRequestDetailsSpy).toHaveBeenCalledTimes(1));
     expect(deleteRequestDetailsSpy.mock.calls[0][0]).toHaveLength(1);
@@ -1591,7 +1593,23 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "glass jellyfish" }));
     expect(prompt).toHaveValue("glass jellyfish");
 
-    await user.click(screen.getByRole("button", { name: "删除 历史 Prompt: glass jellyfish" }));
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "删除 历史 Prompt: glass jellyfish" }));
+      expect(screen.getByRole("button", { name: "再次点击确认删除 历史 Prompt: glass jellyfish" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "glass jellyfish" })).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(screen.getByRole("button", { name: "删除 历史 Prompt: glass jellyfish" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "glass jellyfish" })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "删除 历史 Prompt: glass jellyfish" }));
+      fireEvent.click(screen.getByRole("button", { name: "再次点击确认删除 历史 Prompt: glass jellyfish" }));
+    } finally {
+      vi.useRealTimers();
+    }
     expect(screen.queryByRole("button", { name: "glass jellyfish" })).not.toBeInTheDocument();
     expect(screen.getByText("暂无历史 Prompt")).toBeInTheDocument();
   });

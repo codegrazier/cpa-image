@@ -1,5 +1,6 @@
 import {
   AlertCircleIcon,
+  CheckIcon,
   CheckCircle2Icon,
   CopyIcon,
   DownloadIcon,
@@ -72,6 +73,7 @@ import { cn } from "@/lib/utils";
 
 const FILTERS: RequestFilter[] = ["all", "active", "done", "failed"];
 const REQUEST_ERROR_PREVIEW_LIMIT = 240;
+const DELETE_CONFIRMATION_TIMEOUT_MS = 3000;
 const SIZE_OPTION_DISPLAY_LABELS: Record<string, string> = {
   "2048x2048": "2048x2048 (2K)",
   "2048x1536": "2048x1536 (2K)",
@@ -193,6 +195,43 @@ function selectedRequestImageSize(request: ImageRequestRecord | null) {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
+function useTimedConfirmation(timeoutMs: number) {
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+
+  const clearConfirmationTimer = () => {
+    if (timeoutRef.current != null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  };
+
+  const clearPendingConfirmation = () => {
+    clearConfirmationTimer();
+    setPendingKey(null);
+  };
+
+  useEffect(() => clearConfirmationTimer, []);
+
+  function requestConfirmation(key: string) {
+    if (pendingKey === key) {
+      clearPendingConfirmation();
+      return true;
+    }
+
+    clearConfirmationTimer();
+    setPendingKey(key);
+    timeoutRef.current = window.setTimeout(() => {
+      timeoutRef.current = null;
+      setPendingKey((current) => (current === key ? null : current));
+    }, timeoutMs);
+
+    return false;
+  }
+
+  return { pendingKey, requestConfirmation, clearPendingConfirmation };
+}
+
 function ActionSlot({
   visible,
   label,
@@ -309,18 +348,26 @@ function RequestRow({
   onSelect: () => void;
 }) {
   const { copy, language } = useI18n();
+  const { pendingKey: pendingDeleteRequestId, requestConfirmation } = useTimedConfirmation(DELETE_CONFIRMATION_TIMEOUT_MS);
   const requestSummary = `${generationMethodDisplayName(request.method)} · ${payloadSize}`;
   const requestDetail =
     request.error || (request.status === "done" ? formatCompletionTime(request.completedAt, language === "en" ? "en" : "zh") : "");
   const thumbnail = request.thumbnail || null;
   const isActive = request.status === "queued" || request.status === "running";
-  const actionLabel = isActive ? copy.requestCardStatus.cancel : copy.requestCardStatus.delete;
+  const isConfirmingDelete = !isActive && pendingDeleteRequestId === request.id;
+  const actionLabel = isActive
+    ? copy.requestCardStatus.cancel
+    : isConfirmingDelete
+      ? copy.requestCardStatus.confirmDelete
+      : copy.requestCardStatus.delete;
   const actionAriaLabel = isActive
     ? copy.requestCardStatus.cancel
-    : language === "en"
-      ? `Delete ${request.title}`
-      : `删除 ${request.title}`;
-  const ActionIcon = isActive ? XIcon : Trash2Icon;
+    : isConfirmingDelete
+      ? `${copy.requestCardStatus.confirmDelete} ${request.title}`
+      : language === "en"
+        ? `Delete ${request.title}`
+        : `删除 ${request.title}`;
+  const ActionIcon = isActive ? XIcon : isConfirmingDelete ? CheckIcon : Trash2Icon;
 
   return (
     <div
@@ -376,7 +423,10 @@ function RequestRow({
               type="button"
               variant="ghost"
               size="icon-xs"
-              className="shrink-0 text-muted-foreground hover:text-foreground"
+              className={cn(
+                "shrink-0 text-muted-foreground hover:text-foreground",
+                isConfirmingDelete && "text-destructive hover:text-destructive",
+              )}
               aria-label={actionAriaLabel}
               onClick={(event) => {
                 event.stopPropagation();
@@ -384,6 +434,7 @@ function RequestRow({
                   onCancelRequest?.(request.id);
                   return;
                 }
+                if (!requestConfirmation(request.id)) return;
                 onDeleteRequest?.(request.id);
               }}
             >
@@ -899,7 +950,8 @@ function PromptHistoryPanel({
   onDeletePrompt: (value: string) => void;
   onTogglePromptPin: (value: string) => void;
 }) {
-  const { copy, language } = useI18n();
+  const { copy } = useI18n();
+  const { pendingKey: pendingDeletePrompt, requestConfirmation } = useTimedConfirmation(DELETE_CONFIRMATION_TIMEOUT_MS);
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2" aria-label={copy.promptHistory.title}>
       <div className="flex items-center justify-between gap-2">
@@ -916,8 +968,22 @@ function PromptHistoryPanel({
             {promptHistory.map((item) => (
               <div
                 key={item.prompt}
-                className="grid w-full max-w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 overflow-hidden border-b last:border-b-0"
+                className="grid w-full max-w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 overflow-hidden border-b last:border-b-0"
               >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full min-w-0 cursor-pointer items-center overflow-hidden px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
+                      onClick={() => onSelectPrompt(item.prompt)}
+                    >
+                      <span className="block min-w-0 flex-1 truncate">{item.prompt}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" sideOffset={8} className="whitespace-pre-wrap break-words text-left">
+                    {item.prompt}
+                  </TooltipContent>
+                </Tooltip>
                 <Button
                   type="button"
                   variant="ghost"
@@ -930,31 +996,29 @@ function PromptHistoryPanel({
                 >
                   <PinIcon fill={item.pinned ? "currentColor" : "none"} data-icon="inline-start" />
                 </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex w-full min-w-0 cursor-pointer items-center overflow-hidden px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
-                      onClick={() => onSelectPrompt(item.prompt)}
-                    >
-                      <span className="block min-w-0 flex-1 truncate">{item.prompt}</span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent sideOffset={8} className="whitespace-pre-wrap break-words text-left">
-                    {item.prompt}
-                  </TooltipContent>
-                </Tooltip>
-                  <Button
+                <Button
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  className="mr-1 shrink-0"
+                  className={cn(
+                    "mr-1 shrink-0",
+                    pendingDeletePrompt === item.prompt && "text-destructive hover:text-destructive",
+                  )}
                   aria-label={
-                    `${copy.promptHistory.delete} ${copy.promptHistory.title}: ${item.prompt}`
+                    pendingDeletePrompt === item.prompt
+                      ? `${copy.promptHistory.confirmDelete} ${copy.promptHistory.title}: ${item.prompt}`
+                      : `${copy.promptHistory.delete} ${copy.promptHistory.title}: ${item.prompt}`
                   }
-                  onClick={() => onDeletePrompt(item.prompt)}
+                  onClick={() => {
+                    if (!requestConfirmation(item.prompt)) return;
+                    onDeletePrompt(item.prompt);
+                  }}
                 >
-                  <Trash2Icon data-icon="inline-start" />
+                  {pendingDeletePrompt === item.prompt ? (
+                    <CheckIcon data-icon="inline-start" />
+                  ) : (
+                    <Trash2Icon data-icon="inline-start" />
+                  )}
                 </Button>
               </div>
             ))}

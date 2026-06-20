@@ -245,6 +245,7 @@ type Copy = {
     unselectedSubtitle: string;
     cancel: string;
     delete: string;
+    confirmDelete: string;
     deletedRequest: string;
     reusePrompt: string;
     responseJson: string;
@@ -260,6 +261,7 @@ type Copy = {
     pin: string;
     unpin: string;
     delete: string;
+    confirmDelete: string;
     refilled: string;
   };
   promptEditor: {
@@ -450,6 +452,7 @@ const COPY: Record<Language, Copy> = {
       unselectedSubtitle: "生成后点击请求查看结果。",
       cancel: "取消请求",
       delete: "删除",
+      confirmDelete: "再次点击确认删除",
       deletedRequest: "已删除请求",
       reusePrompt: "复用 Prompt",
       responseJson: "响应 JSON",
@@ -465,6 +468,7 @@ const COPY: Record<Language, Copy> = {
       pin: "置顶",
       unpin: "取消置顶",
       delete: "删除",
+      confirmDelete: "再次点击确认删除",
       refilled: "历史 Prompt 已回填",
     },
     promptEditor: {
@@ -666,6 +670,7 @@ const COPY: Record<Language, Copy> = {
       unselectedSubtitle: "Click a request after generation to view results.",
       cancel: "Cancel",
       delete: "Delete",
+      confirmDelete: "Click again to delete",
       deletedRequest: "Deleted request",
       reusePrompt: "Reuse prompt",
       responseJson: "Response JSON",
@@ -681,6 +686,7 @@ const COPY: Record<Language, Copy> = {
       pin: "Pin",
       unpin: "Unpin",
       delete: "Delete",
+      confirmDelete: "Click again to delete",
       refilled: "Prompt refilled",
     },
     promptEditor: {
