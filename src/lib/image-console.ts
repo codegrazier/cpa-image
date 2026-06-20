@@ -152,7 +152,6 @@ export interface RequestPayload {
   quality?: string;
   background?: string;
   output_format?: string;
-  response_format?: string;
   moderation?: string;
   tools?: ImageToolPayload[];
   tool_choice?: {
@@ -623,7 +622,6 @@ export function buildPayload(
     quality: values.quality || DEFAULTS.quality,
     background: values.background || DEFAULTS.background,
     output_format: values.outputFormat || DEFAULTS.outputFormat,
-    response_format: "b64_json",
     moderation: "low",
   };
 }

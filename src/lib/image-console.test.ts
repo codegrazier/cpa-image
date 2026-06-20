@@ -134,7 +134,6 @@ describe("image console logic", () => {
       quality: "high",
       background: "opaque",
       output_format: "webp",
-      response_format: "b64_json",
       moderation: "low",
     });
   });
