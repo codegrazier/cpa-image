@@ -86,12 +86,12 @@ const SIZE_OPTION_DISPLAY_LABELS: Record<string, string> = {
 const SIZE_GROUPS = {
   zh: [
     { label: "方形", icon: SquareIcon, options: ["1024x1024", "2048x2048"] },
-    { label: "横屏", icon: RectangleHorizontalIcon, options: ["1440x1088", "1536x1024", "2048x1536", "2048x1152", "3840x2160"] },
+    { label: "横屏", icon: RectangleHorizontalIcon, options: ["1440x1088", "1536x1024", "2048x1152", "2048x1536", "3840x2160"] },
     { label: "竖屏", icon: RectangleVerticalIcon, options: ["1088x1440", "1024x1536",  "1152x2048", "1536x2048","2160x3840"] },
   ],
   en: [
     { label: "Square", icon: SquareIcon, options: ["1024x1024", "2048x2048"] },
-    { label: "Landscape", icon: RectangleHorizontalIcon, options: ["1440x1088", "1536x1024", "2048x1536", "2048x1152", "3840x2160"] },
+    { label: "Landscape", icon: RectangleHorizontalIcon, options: ["1440x1088", "1536x1024", "2048x1152", "2048x1536", "3840x2160"] },
     { label: "Portrait", icon: RectangleVerticalIcon, options: ["1088x1440", "1024x1536", "1152x2048", "1536x2048", "2160x3840"] },
   ],
 } as const;
