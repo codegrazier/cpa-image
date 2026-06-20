@@ -280,6 +280,32 @@ describe("App", () => {
     expect(screen.getByDisplayValue("proxy-key")).toBeInTheDocument();
   });
 
+  test("relocalizes dynamic status messages after switching language", async () => {
+    const user = userEvent.setup();
+    storeSettings({
+      generationsModel: "gpt-image-3",
+      editsModel: "gpt-image-edit",
+      responsesModel: "gpt-5.6",
+      completionsModel: "grok-imagine-image-lite",
+    });
+
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: /配置/ }));
+    const dialog = screen.getByRole("dialog", { name: "连接" });
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "连接" })).not.toBeInTheDocument());
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    expect(within(resultPanel).getByText("已保存")).toBeInTheDocument();
+    expect(within(resultPanel).getByText(/generations 模型 gpt-image-3/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "切换到 English" }));
+
+    expect(within(resultPanel).getByText("Saved")).toBeInTheDocument();
+    expect(within(resultPanel).getByText(/Generations model gpt-image-3/)).toBeInTheDocument();
+    expect(within(resultPanel).queryByText("已保存")).not.toBeInTheDocument();
+  });
+
   test("clamps request count to the supported range on blur", async () => {
     const user = userEvent.setup();
     renderApp();

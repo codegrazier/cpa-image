@@ -44,7 +44,6 @@ import {
   normalizeSharedSettings,
   normalizeStrictPromptText,
   MAX_EDIT_INPUT_IMAGES,
-  requestControlSummary,
   requestFilterCounts,
   requestImageCount,
   requestMatchesFilter,
@@ -93,6 +92,25 @@ interface StatusMessage {
   state: string;
   detail: string;
 }
+
+type StatusMessageSource =
+  | { type: "queue" }
+  | { type: "prompt-history-refilled"; value: string }
+  | { type: "historical-image-exists"; requestTitle: string; imageIndex: number }
+  | { type: "historical-image-full"; count: number }
+  | { type: "historical-image-added"; requestTitle: string; imageIndex: number }
+  | { type: "historical-image-load-failed"; detail?: string }
+  | { type: "settings-saved"; settings: AppSettings }
+  | { type: "settings-reset" }
+  | { type: "connection-testing"; endpoint: string }
+  | { type: "connection-normal" }
+  | { type: "connection-failed"; detail: string }
+  | { type: "request-not-created"; reason: "connection-required" | "custom"; detail?: string }
+  | { type: "request-queued"; method: GenerationMethod; count: number; settings: AppSettings; endpoint: string }
+  | { type: "request-canceled"; title: string }
+  | { type: "requests-canceled"; count: number }
+  | { type: "requests-cleared"; kind: "all" | "completed" | "failed" }
+  | { type: "request-deleted"; title: string };
 
 export interface ExportZipProgress {
   current: number;
@@ -205,6 +223,78 @@ function queueStatusMessage(
   }
 
   return copy.queueComplete(settings, { done: doneCount, failed: failedCount, canceled: canceledCount, imageCount });
+}
+
+function settingsSavedStatusMessage(settings: AppSettings, copy: ReturnType<typeof getCopy>): StatusMessage {
+  return {
+    state: copy.tests.connectionSaved,
+    detail: `${copy.requestSummary(settings)} · ${copy.settings.generationsModel} ${settings.generationsModel} · ${copy.settings.editsModel} ${settings.editsModel} · ${copy.settings.responsesModel} ${settings.responsesModel} · ${copy.settings.completionsModel} ${settings.completionsModel}`,
+  };
+}
+
+function statusMessageFromSource(
+  source: StatusMessageSource,
+  records: ImageRequestRecord[],
+  settings: AppSettings,
+  copy: ReturnType<typeof getCopy>,
+): StatusMessage {
+  switch (source.type) {
+    case "queue":
+      return queueStatusMessage(records, settings, copy);
+    case "prompt-history-refilled":
+      return { state: copy.promptHistory.refilled, detail: source.value };
+    case "historical-image-exists": {
+      const message = copy.runtime.historicalImageExists(source.requestTitle, source.imageIndex);
+      return { state: message, detail: message };
+    }
+    case "historical-image-full":
+      return { state: copy.runtime.historicalImageFull, detail: copy.generator.maxEditImages(source.count) };
+    case "historical-image-added": {
+      const message = copy.runtime.historicalImageAddedToEdit(source.requestTitle, source.imageIndex);
+      return { state: message, detail: message };
+    }
+    case "historical-image-load-failed":
+      return { state: copy.runtime.historicalImageLoadFailed, detail: source.detail || copy.runtime.historicalImageLoadFailed };
+    case "settings-saved":
+      return settingsSavedStatusMessage(source.settings, copy);
+    case "settings-reset":
+      return { state: copy.tests.connectionReset, detail: copy.tests.connectionResetDetail };
+    case "connection-testing":
+      return { state: copy.tests.connectionTesting, detail: source.endpoint };
+    case "connection-normal":
+      return { state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail };
+    case "connection-failed":
+      return { state: copy.tests.connectionFailed, detail: source.detail };
+    case "request-not-created":
+      return {
+        state: copy.generator.requestNotCreated,
+        detail: source.reason === "connection-required" ? copy.generator.connectionRequired : source.detail || "",
+      };
+    case "request-queued":
+      return {
+        state: copy.generator.requestQueued,
+        detail: copy.runtime.queuedRequestDetail(
+          generationMethodDisplayName(source.method),
+          source.count,
+          copy.requestSummary(source.settings),
+          source.endpoint,
+        ),
+      };
+    case "request-canceled":
+      return { state: copy.runtime.requestCanceled, detail: source.title };
+    case "requests-canceled":
+      return { state: copy.runtime.requestCanceled, detail: copy.runtime.requestsCanceled(source.count) };
+    case "requests-cleared":
+      if (source.kind === "completed") {
+        return { state: copy.runtime.completedRequestsCleared, detail: copy.runtime.completedRequestsCleared };
+      }
+      if (source.kind === "failed") {
+        return { state: copy.runtime.failedRequestsCleared, detail: copy.runtime.failedRequestsCleared };
+      }
+      return { state: copy.runtime.allRequestsCleared, detail: copy.runtime.allRequestsCleared };
+    case "request-deleted":
+      return { state: copy.requestCardStatus.deletedRequest, detail: source.title };
+  }
 }
 
 function missingConnectionMessage(settings: Pick<AppSettings, "baseUrl" | "apiKey">, copy: ReturnType<typeof getCopy>) {
@@ -515,10 +605,7 @@ export function useImageConsole() {
   const [requestRecords, setRequestRecords] = useState<ImageRequestRecord[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedRequestFilter, setSelectedRequestFilter] = useState<RequestFilter>("all");
-  const [statusMessage, setStatusMessage] = useState<StatusMessage>({
-    state: copy.waitingGeneration.state,
-    detail: copy.waitingGeneration.detail,
-  });
+  const [statusMessageSource, setStatusMessageSource] = useState<StatusMessageSource>({ type: "queue" });
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     label: copy.tests.connectionReset,
     tone: "default",
@@ -536,6 +623,10 @@ export function useImageConsole() {
   const settings = useMemo(
     () => mergeSettingsForMode(storedSettings.shared, storedSettings.modeSettingsByMode[mode]),
     [mode, storedSettings],
+  );
+  const statusMessage = useMemo(
+    () => statusMessageFromSource(statusMessageSource, requestRecords, settings, copy),
+    [copy, requestRecords, settings, statusMessageSource],
   );
   const settingsRef = useRef(settings);
   const storedSettingsRef = useRef(storedSettings);
@@ -603,9 +694,6 @@ export function useImageConsole() {
       }
       return { label: copy.tests.test, tone: "default" };
     });
-    if (!requestRecordsRef.current.length) {
-      setStatusMessage(copy.waitingGeneration);
-    }
   }, [copy]);
 
   useEffect(() => {
@@ -1091,7 +1179,7 @@ export function useImageConsole() {
 
     if (hasActive) {
       wasQueueActiveRef.current = true;
-      setStatusMessage(queueStatusMessage(requestRecords, settings, copy));
+      setStatusMessageSource({ type: "queue" });
       return;
     }
 
@@ -1099,7 +1187,7 @@ export function useImageConsole() {
       wasQueueActiveRef.current = false;
       lastRequestStartedAtRef.current = 0;
       clearQueueTimer();
-      setStatusMessage(queueStatusMessage(requestRecords, settings, copy));
+      setStatusMessageSource({ type: "queue" });
     }
   }, [clearQueueTimer, copy, requestRecords, settings]);
 
@@ -1216,9 +1304,9 @@ export function useImageConsole() {
   const selectPromptHistory = useCallback(
     (value: string) => {
       setPrompt(value);
-      setStatusMessage({ state: copy.promptHistory.refilled, detail: value });
+      setStatusMessageSource({ type: "prompt-history-refilled", value });
     },
-    [copy, setPrompt],
+    [setPrompt],
   );
 
   const togglePromptHistoryPin = useCallback(
@@ -1257,17 +1345,14 @@ export function useImageConsole() {
       }
 
       if (editImagesRef.current.some((item) => item.sourceKey === sourceKey)) {
-        setStatusMessage({
-          state: copy.runtime.historicalImageExists(request.title, imageIndex),
-          detail: copy.runtime.historicalImageExists(request.title, imageIndex),
-        });
+        setStatusMessageSource({ type: "historical-image-exists", requestTitle: request.title, imageIndex });
         return;
       }
 
       if (editImagesRef.current.length >= MAX_EDIT_INPUT_IMAGES) {
         const message = copy.generator.maxEditImages(MAX_EDIT_INPUT_IMAGES);
         toast.error(message);
-        setStatusMessage({ state: copy.runtime.historicalImageFull, detail: message });
+        setStatusMessageSource({ type: "historical-image-full", count: MAX_EDIT_INPUT_IMAGES });
         return;
       }
 
@@ -1297,14 +1382,11 @@ export function useImageConsole() {
           if (current.some((item) => item.sourceKey === sourceKey)) return current;
           return [...current, { ...image, sourceKey }];
         });
-        setStatusMessage({
-          state: copy.runtime.historicalImageAddedToEdit(request.title, imageIndex),
-          detail: copy.runtime.historicalImageAddedToEdit(request.title, imageIndex),
-        });
+        setStatusMessageSource({ type: "historical-image-added", requestTitle: request.title, imageIndex });
       } catch (error) {
         const message = (error as Error).message || copy.runtime.historicalImageLoadFailed;
         toast.error(message);
-        setStatusMessage({ state: copy.runtime.historicalImageLoadFailed, detail: message });
+        setStatusMessageSource({ type: "historical-image-load-failed", detail: message });
       }
     },
     [copy],
@@ -1359,10 +1441,7 @@ export function useImageConsole() {
     settingsRef.current = normalized;
     saveSettings(nextStoredSettings);
     setConnectionStatus({ label: copy.tests.connectionSaved, tone: "ok" });
-    setStatusMessage({
-      state: copy.tests.connectionSaved,
-      detail: `${copy.requestSummary(normalized)} · ${copy.settings.generationsModel} ${normalized.generationsModel} · ${copy.settings.editsModel} ${normalized.editsModel} · ${copy.settings.responsesModel} ${normalized.responsesModel} · ${copy.settings.completionsModel} ${normalized.completionsModel}`,
-    });
+    setStatusMessageSource({ type: "settings-saved", settings: normalized });
     clearQueueTimer();
     setSettingsOpen(false);
     scheduleQueueRef.current();
@@ -1376,14 +1455,14 @@ export function useImageConsole() {
     settingsRef.current = mergeSettingsForMode(defaults.shared, defaults.modeSettingsByMode[modeRef.current]);
     setConnectionStatus({ label: copy.tests.connectionReset, tone: "default" });
     setTestConnectionStatus({ label: copy.tests.test, tone: "default" });
-    setStatusMessage({ state: copy.tests.connectionReset, detail: copy.tests.connectionResetDetail });
+    setStatusMessageSource({ type: "settings-reset" });
   }, [copy]);
 
   const testConnection = useCallback(async () => {
     const currentSettings = settingsRef.current;
     const endpoint = normalizeModelsEndpoint(currentSettings.baseUrl, currentSettings.enableCrossOriginProxy);
     setTestConnectionStatus({ label: copy.tests.connectionTesting, tone: "busy" });
-    setStatusMessage({ state: copy.tests.connectionTesting, detail: endpoint });
+    setStatusMessageSource({ type: "connection-testing", endpoint });
 
     try {
       await fetchModels(
@@ -1394,13 +1473,13 @@ export function useImageConsole() {
       );
       toast.success(copy.tests.connectionNormal);
       setTestConnectionStatus({ label: copy.tests.connectionNormal, tone: "ok" });
-      setStatusMessage({ state: copy.tests.connectionNormal, detail: copy.tests.connectionNormalDetail });
+      setStatusMessageSource({ type: "connection-normal" });
     } catch (error) {
       if (await isCrossOriginFetchFailure(endpoint, error)) {
         toast.error(copy.runtime.crossOriginRequestFailed);
       }
       setTestConnectionStatus({ label: copy.tests.connectionFailed, tone: "error" });
-      setStatusMessage({ state: copy.tests.connectionFailed, detail: (error as Error).message });
+      setStatusMessageSource({ type: "connection-failed", detail: (error as Error).message });
     }
   }, [copy, language]);
 
@@ -1413,7 +1492,7 @@ export function useImageConsole() {
 
       const requestConfigMessage = missingConnectionMessage(settingsRef.current, copy);
       if (requestConfigMessage) {
-        setStatusMessage({ state: copy.generator.requestNotCreated, detail: requestConfigMessage });
+        setStatusMessageSource({ type: "request-not-created", reason: "connection-required" });
         toast.error(requestConfigMessage);
         return false;
       }
@@ -1446,7 +1525,7 @@ export function useImageConsole() {
         }
       } catch (error) {
         const message = (error as Error).message;
-        setStatusMessage({ state: copy.generator.requestNotCreated, detail: message });
+        setStatusMessageSource({ type: "request-not-created", reason: "custom", detail: message });
         toast.error(message);
         return false;
       }
@@ -1477,14 +1556,12 @@ export function useImageConsole() {
 
       commitRecords((records) => [...records, ...newRequests]);
       setSelectedRequestId((currentId) => currentId || newRequests[0]?.id || null);
-      setStatusMessage({
-        state: copy.generator.requestQueued,
-        detail: copy.runtime.queuedRequestDetail(
-          generationMethodDisplayName(method),
-          newRequests.length,
-          requestControlSummary(currentSettings, language),
-          endpoint,
-        ),
+      setStatusMessageSource({
+        type: "request-queued",
+        method,
+        count: newRequests.length,
+        settings: currentSettings,
+        endpoint,
       });
       toast.success(copy.generator.submissionSuccess(newRequests.length));
       scheduleQueueRef.current();
@@ -1501,14 +1578,14 @@ export function useImageConsole() {
 
     const requestConfigMessage = missingConnectionMessage(settingsRef.current, copy);
     if (requestConfigMessage) {
-      setStatusMessage({ state: copy.generator.requestNotCreated, detail: requestConfigMessage });
+      setStatusMessageSource({ type: "request-not-created", reason: "connection-required" });
       toast.error(requestConfigMessage);
       return false;
     }
 
     if (!editImages.length) {
       const message = copy.generator.selectAtLeastOneImage;
-      setStatusMessage({ state: copy.generator.requestNotCreated, detail: message });
+      setStatusMessageSource({ type: "request-not-created", reason: "custom", detail: message });
       toast.error(message);
       return false;
     }
@@ -1530,7 +1607,7 @@ export function useImageConsole() {
       method = "edit";
     } catch (error) {
       const message = (error as Error).message;
-      setStatusMessage({ state: copy.generator.requestNotCreated, detail: message });
+      setStatusMessageSource({ type: "request-not-created", reason: "custom", detail: message });
       toast.error(message);
       return false;
     }
@@ -1562,14 +1639,12 @@ export function useImageConsole() {
 
     commitRecords((records) => [...records, ...newRequests]);
     setSelectedRequestId((currentId) => currentId || newRequests[0]?.id || null);
-    setStatusMessage({
-      state: copy.generator.requestQueued,
-      detail: copy.runtime.queuedRequestDetail(
-        generationMethodDisplayName(method),
-        newRequests.length,
-        requestControlSummary(currentSettings, language),
-        endpoint,
-      ),
+    setStatusMessageSource({
+      type: "request-queued",
+      method,
+      count: newRequests.length,
+      settings: currentSettings,
+      endpoint,
     });
     toast.success(copy.generator.submissionSuccess(newRequests.length));
     scheduleQueueRef.current();
@@ -1602,7 +1677,7 @@ export function useImageConsole() {
         ),
       );
       setSelectedRequestId(nextSelectedRequestId);
-      setStatusMessage({ state: copy.runtime.requestCanceled, detail: request.title });
+      setStatusMessageSource({ type: "request-canceled", title: request.title });
       scheduleQueueRef.current();
     },
     [commitRecords, copy, selectedRequestFilter],
@@ -1625,21 +1700,21 @@ export function useImageConsole() {
     lastRequestStartedAtRef.current = 0;
     setSelectedRequestDetailLoadingId(null);
 
-      commitRecords((records) =>
-        records.map((item) =>
-          isActiveRequest(item)
-            ? {
-                ...item,
-                status: "canceled",
-                endedAt: now,
-                error: item.status === "queued" ? copy.runtime.requestCanceledBeforeSend : copy.runtime.requestCanceled,
-                cancelRequested: true,
-                editImages: [],
-              }
-            : item,
-        ),
-      );
-    setStatusMessage({ state: copy.runtime.requestCanceled, detail: copy.runtime.requestsCanceled(activeRequests.length) });
+    commitRecords((records) =>
+      records.map((item) =>
+        isActiveRequest(item)
+          ? {
+              ...item,
+              status: "canceled",
+              endedAt: now,
+              error: item.status === "queued" ? copy.runtime.requestCanceledBeforeSend : copy.runtime.requestCanceled,
+              cancelRequested: true,
+              editImages: [],
+            }
+          : item,
+      ),
+    );
+    setStatusMessageSource({ type: "requests-canceled", count: activeRequests.length });
   }, [clearQueueTimer, commitRecords, copy]);
 
   const clearAllRequests = useCallback(() => {
@@ -1659,7 +1734,7 @@ export function useImageConsole() {
     setRequestRecords([]);
     setSelectedRequestId(null);
     void clearCachedRequests();
-      setStatusMessage({ state: copy.runtime.allRequestsCleared, detail: copy.runtime.allRequestsCleared });
+    setStatusMessageSource({ type: "requests-cleared", kind: "all" });
   }, [clearQueueTimer, copy]);
 
   const clearCompletedRequests = useCallback(() => {
@@ -1672,7 +1747,7 @@ export function useImageConsole() {
     setSelectedRequestDetailLoadingId(null);
     commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "done")));
     void deleteRequestDetails(removedIds);
-    setStatusMessage({ state: copy.runtime.completedRequestsCleared, detail: copy.runtime.completedRequestsCleared });
+    setStatusMessageSource({ type: "requests-cleared", kind: "completed" });
   }, [commitRecords, copy]);
 
   const clearFailedRequests = useCallback(() => {
@@ -1682,7 +1757,7 @@ export function useImageConsole() {
     setSelectedRequestDetailLoadingId(null);
     commitRecords((records) => records.filter((request) => !requestMatchesFilter(request, "failed")));
     void deleteRequestDetails(removedIds);
-    setStatusMessage({ state: copy.runtime.failedRequestsCleared, detail: copy.runtime.failedRequestsCleared });
+    setStatusMessageSource({ type: "requests-cleared", kind: "failed" });
   }, [commitRecords, copy]);
 
   const deleteRequest = useCallback(
@@ -1700,7 +1775,7 @@ export function useImageConsole() {
       void deleteRequestDetails([requestId]);
 
       setSelectedRequestId((current) => (current === requestId ? nextSelectedRequestId : current));
-      setStatusMessage({ state: copy.requestCardStatus.deletedRequest, detail: request.title });
+      setStatusMessageSource({ type: "request-deleted", title: request.title });
     },
     [commitRecords, copy, selectedRequestFilter],
   );
@@ -1710,9 +1785,9 @@ export function useImageConsole() {
       const reusablePrompt = reusablePromptForRequest(request);
       if (!reusablePrompt) return;
       setPrompt(reusablePrompt);
-      setStatusMessage({ state: copy.promptHistory.refilled, detail: request.title });
+      setStatusMessageSource({ type: "prompt-history-refilled", value: request.title });
     },
-    [copy, setPrompt],
+    [setPrompt],
   );
 
   const exportCompletedImagesZip = useCallback(

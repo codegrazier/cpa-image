@@ -373,6 +373,10 @@ type Copy = {
   };
 };
 
+function englishRequestControlSummary(settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">) {
+  return `Concurrency ${settings.requestConcurrency} · Interval ${settings.requestIntervalSeconds}s`;
+}
+
 const COPY: Record<Language, Copy> = {
   zh: {
     appName: "CPA Image",
@@ -595,7 +599,7 @@ const COPY: Record<Language, Copy> = {
     languageName: "English",
     switchLanguageTooltip: "Switch to 中文",
     requestList: "Requests",
-    requestSummary: (settings) => `Concurrency ${settings.requestConcurrency} · Interval ${settings.requestIntervalSeconds}s`,
+    requestSummary: (settings) => englishRequestControlSummary(settings),
     clearAll: "Clear all",
     cancelRequests: "Cancel",
     clearCompleted: "Clear done",
@@ -640,11 +644,11 @@ const COPY: Record<Language, Copy> = {
     },
     queueRunning: (settings, counts) => ({
       state: "Queue running",
-      detail: `${baseRequestControlSummary(settings)} · Running ${counts.running} · Queued ${counts.queued} · Done ${counts.done} · Failed ${counts.failed}`,
+      detail: `${englishRequestControlSummary(settings)} · Running ${counts.running} · Queued ${counts.queued} · Done ${counts.done} · Failed ${counts.failed}`,
     }),
     queueComplete: (settings, counts) => ({
       state: `Queue done ${counts.imageCount} images`,
-      detail: `${baseRequestControlSummary(settings)} · Done ${counts.done} · Failed ${counts.failed} · Canceled ${counts.canceled}`,
+      detail: `${englishRequestControlSummary(settings)} · Done ${counts.done} · Failed ${counts.failed} · Canceled ${counts.canceled}`,
     }),
     waitingGeneration: { state: "Waiting", detail: "Configure URL and API Key to begin." },
     requestCardEmpty: {
