@@ -1,3 +1,26 @@
+import { DEFAULT_BASE_URL } from "@/lib/endpoints";
+
+export {
+  CROSS_ORIGIN_PROXY_PREFIX,
+  normalizeChatCompletionsEndpoint,
+  normalizeImageEditsEndpoint,
+  normalizeImageEndpoint,
+  normalizeModelsEndpoint,
+  normalizeResponsesEndpoint,
+} from "@/lib/endpoints";
+
+export {
+  MAX_PROMPT_HISTORY,
+  addPromptToHistory,
+  mergePromptHistoryForDisplay,
+  normalizePinnedPromptHistory,
+  normalizePromptHistory,
+  pinPromptHistory,
+  removePromptFromHistory,
+  unpinPromptHistory,
+  type PromptHistoryEntry,
+} from "@/lib/prompt-history";
+
 export const STORAGE_KEY = "CPA-Image-settings";
 export const REQUEST_CACHE_KEY = "CPA-Image-requests";
 export const LAST_PROMPT_KEY = "CPA-Image-last-prompt";
@@ -14,17 +37,16 @@ export const MIN_REQUEST_INTERVAL_SECONDS = 0;
 export const MAX_REQUEST_INTERVAL_SECONDS = 3600;
 export const MAX_IMAGE_COUNT = 100;
 export const MAX_EDIT_INPUT_IMAGES = 5;
-export const MAX_PROMPT_HISTORY = 100;
 export const LAST_PROMPT_KEY_BY_MODE = {
-  generate: "CPA-Image-last-prompt",
+  generate: LAST_PROMPT_KEY,
   edit: "CPA-Image-edit-last-prompt",
 } as const;
 export const PROMPT_HISTORY_KEY_BY_MODE = {
-  generate: "CPA-Image-prompt-history",
+  generate: PROMPT_HISTORY_KEY,
   edit: "CPA-Image-edit-prompt-history",
 } as const;
 export const PINNED_PROMPT_HISTORY_KEY_BY_MODE = {
-  generate: "CPA-Image-pinned-prompts",
+  generate: PINNED_PROMPT_HISTORY_KEY,
   edit: "CPA-Image-edit-pinned-prompts",
 } as const;
 
@@ -41,6 +63,20 @@ export const SIZE_OPTIONS = [
   ...SIZE_OPTION_GROUPS.portrait,
 ] as const;
 
+export const SIZE_OPTION_DISPLAY_LABELS: Partial<Record<ImageSize, string>> = {
+  "2048x2048": "2048x2048 (2K)",
+  "2048x1536": "2048x1536 (2K)",
+  "2048x1152": "2048x1152 (2K)",
+  "1152x2048": "1152x2048 (2K)",
+  "3840x2160": "3840x2160 (4K)",
+  "2160x3840": "2160x3840 (4K)",
+  "1536x2048": "1536x2048 (2K)",
+};
+
+export function sizeOptionDisplayLabel(option: ImageSize | string) {
+  return SIZE_OPTION_DISPLAY_LABELS[option as ImageSize] || option;
+}
+
 export const QUALITY_OPTIONS = ["auto", "low", "medium", "high"] as const;
 export const BACKGROUND_OPTIONS = ["auto", "opaque", "transparent"] as const;
 export const OUTPUT_FORMAT_OPTIONS = ["png", "webp", "jpeg"] as const;
@@ -51,8 +87,11 @@ export type ImageBackground = (typeof BACKGROUND_OPTIONS)[number];
 export type ImageOutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number];
 export type ConsoleMode = "generate" | "edit";
 export type GenerationMethod = "gpt-image-2" | "image_generation" | "completions" | "edit";
-export type RequestStatus = "queued" | "running" | "done" | "error" | "canceled" | string;
-export type RequestFilter = "all" | "active" | "done" | "failed";
+export const KNOWN_REQUEST_STATUSES = ["queued", "running", "done", "error", "canceled"] as const;
+export type KnownRequestStatus = (typeof KNOWN_REQUEST_STATUSES)[number];
+export type RequestStatus = KnownRequestStatus | (string & {});
+export const REQUEST_FILTERS = ["all", "active", "done", "failed"] as const;
+export type RequestFilter = (typeof REQUEST_FILTERS)[number];
 
 export interface AppSettings {
   baseUrl: string;
@@ -130,11 +169,6 @@ export interface ChatCompletionMessage {
   [key: string]: unknown;
 }
 
-export interface PromptHistoryEntry {
-  prompt: string;
-  pinned: boolean;
-}
-
 export interface RequestPayload {
   model?: string;
   prompt?: string;
@@ -207,7 +241,7 @@ export interface CachedRequestRecord
 }
 
 export const DEFAULTS: AppSettings = {
-  baseUrl: "http://localhost:8317/v1",
+  baseUrl: DEFAULT_BASE_URL,
   apiKey: "",
   rememberKey: false,
   enableCrossOriginProxy: false,
@@ -257,27 +291,13 @@ export const DEFAULT_STORED_SETTINGS: StoredConsoleSettings = {
   },
 };
 
-export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
-  queued: "排队中",
-  running: "生成中",
-  done: "完成",
-  error: "失败",
-  canceled: "已取消",
-};
+export function isKnownRequestStatus(status: RequestStatus): status is KnownRequestStatus {
+  return (KNOWN_REQUEST_STATUSES as readonly string[]).includes(status);
+}
 
-export const REQUEST_FILTER_LABELS: Record<RequestFilter, string> = {
-  all: "全部",
-  active: "进行中",
-  done: "已完成",
-  failed: "已失败",
-};
-
-export const REQUEST_FILTER_EMPTY_TEXT: Record<RequestFilter, string> = {
-  all: "暂无请求",
-  active: "暂无进行中请求",
-  done: "暂无已完成请求",
-  failed: "暂无失败或取消请求",
-};
+export function requestStatusDisplayLabel(labels: Record<KnownRequestStatus, string>, status: RequestStatus) {
+  return isKnownRequestStatus(status) ? labels[status] : status;
+}
 
 export function generationMethodDisplayName(method: GenerationMethod | "" | null | undefined) {
   if (method === "image_generation") return "responses";
@@ -312,6 +332,11 @@ function isSettingsRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function optionFromValue<T extends string>(value: unknown, options: readonly T[], fallback: T): T {
+  const normalized = String(value ?? "").trim();
+  return options.includes(normalized as T) ? (normalized as T) : fallback;
+}
+
 export function normalizeStrictPromptText(value: unknown) {
   const text = String(value ?? "").replace(/\r\n/g, "\n");
   return text.trim() ? text : DEFAULT_STRICT_PROMPT_TEXT;
@@ -336,15 +361,15 @@ export function normalizeSharedSettings(values: unknown = {}): SharedSettings {
 }
 
 export function normalizeModeSettings(values: unknown = {}): ModeSettings {
-  const source = (isSettingsRecord(values) ? values : {}) as Partial<ModeSettings>;
+  const source = isSettingsRecord(values) ? values : {};
   return {
     ...DEFAULT_MODE_SETTINGS,
-    size: source.size || DEFAULTS.size,
-    quality: source.quality || DEFAULTS.quality,
+    size: optionFromValue(source.size, SIZE_OPTIONS, DEFAULTS.size),
+    quality: optionFromValue(source.quality, QUALITY_OPTIONS, DEFAULTS.quality),
     n: imageCountFromValue(source.n || DEFAULTS.n),
-    background: source.background || DEFAULTS.background,
-    outputFormat: source.outputFormat || DEFAULTS.outputFormat,
-    strictPrompt: source.strictPrompt ?? DEFAULTS.strictPrompt,
+    background: optionFromValue(source.background, BACKGROUND_OPTIONS, DEFAULTS.background),
+    outputFormat: optionFromValue(source.outputFormat, OUTPUT_FORMAT_OPTIONS, DEFAULTS.outputFormat),
+    strictPrompt: typeof source.strictPrompt === "boolean" ? source.strictPrompt : DEFAULTS.strictPrompt,
   };
 }
 
@@ -356,119 +381,8 @@ export function mergeSettingsForMode(shared: SharedSettings, modeSettings: ModeS
   };
 }
 
-function normalizePromptList(value: unknown, limit = MAX_PROMPT_HISTORY) {
-  if (!Array.isArray(value)) return [];
-
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-
-  for (const item of value) {
-    const prompt = String(item || "").trim();
-    if (!prompt || seen.has(prompt)) continue;
-    seen.add(prompt);
-    normalized.push(prompt);
-
-    if (normalized.length >= limit) break;
-  }
-
-  return normalized;
-}
-
-export function normalizePromptHistory(value: unknown) {
-  return normalizePromptList(value, MAX_PROMPT_HISTORY);
-}
-
-export function normalizePinnedPromptHistory(value: unknown) {
-  return normalizePromptList(value, Number.POSITIVE_INFINITY);
-}
-
-export function addPromptToHistory(history: unknown, prompt: unknown) {
-  return normalizePromptHistory([String(prompt || "").trim(), ...normalizePromptHistory(history)]);
-}
-
-export function removePromptFromHistory(history: unknown, prompt: unknown) {
-  const target = String(prompt || "").trim();
-  return normalizePromptHistory(history).filter((item) => item !== target);
-}
-
-export function pinPromptHistory(history: unknown, prompt: unknown) {
-  const target = String(prompt || "").trim();
-  if (!target) return normalizePinnedPromptHistory(history);
-  return normalizePinnedPromptHistory([target, ...normalizePinnedPromptHistory(history)]);
-}
-
-export function unpinPromptHistory(history: unknown, prompt: unknown) {
-  const target = String(prompt || "").trim();
-  return normalizePinnedPromptHistory(history).filter((item) => item !== target);
-}
-
-export function mergePromptHistoryForDisplay(pinnedHistory: unknown, history: unknown) {
-  const pinned = normalizePinnedPromptHistory(pinnedHistory);
-  const pinnedSet = new Set(pinned);
-  const recent = normalizePromptHistory(history).filter((item) => !pinnedSet.has(item));
-
-  return [...pinned.map((prompt) => ({ prompt, pinned: true })), ...recent.map((prompt) => ({ prompt, pinned: false }))];
-}
-
-const STRICT_PROMPT_PREFIX = [
-  "请把下面的原始 Prompt 当作最终图像指令执行。",
-  "不要改写、扩写、翻译、润色、补充主体、改变构图、改变风格、添加未出现的元素。",
-  "保留原文的风格强度、氛围、姿态、镜头语言、材质和光影，不要把它改得更保守或更中性。",
-  "不要删减关键词，不要替换成含糊说法，不要添加原文没有的内容。",
-  "必须逐字保持原始 Prompt 的语义、语言和细节不变。",
-  "",
-  "原始 Prompt:",
-].join("\n");
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function trimTrailingSlash(value: unknown) {
-  return String(value || "").trim().replace(/\/+$/, "");
-}
-
-export const CROSS_ORIGIN_PROXY_PREFIX = "https://proxy.cpa-image.site/?targetOrigin=";
-
-function applyCrossOriginProxy(endpoint: string, enabled: boolean) {
-  if (!enabled) return endpoint;
-  return `${CROSS_ORIGIN_PROXY_PREFIX}${encodeURIComponent(endpoint)}`;
-}
-
-function routeFromBaseUrl(baseUrl: string, route: string) {
-  const input = trimTrailingSlash(baseUrl || DEFAULTS.baseUrl);
-  const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
-  const routeWithoutV1 = normalizedRoute.replace(/^\/v1\//, "/");
-
-  if (input.endsWith(normalizedRoute) || input.endsWith(routeWithoutV1)) {
-    return input;
-  }
-
-  if (input.endsWith("/v1")) {
-    return `${input}${routeWithoutV1}`;
-  }
-
-  return `${input}/v1${routeWithoutV1}`;
-}
-
-export function normalizeImageEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
-  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/images/generations"), enableCrossOriginProxy);
-}
-
-export function normalizeResponsesEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
-  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/responses"), enableCrossOriginProxy);
-}
-
-export function normalizeImageEditsEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
-  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/images/edits"), enableCrossOriginProxy);
-}
-
-export function normalizeChatCompletionsEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
-  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/chat/completions"), enableCrossOriginProxy);
-}
-
-export function normalizeModelsEndpoint(baseUrl: string, enableCrossOriginProxy = false) {
-  return applyCrossOriginProxy(routeFromBaseUrl(baseUrl, "/v1/models"), enableCrossOriginProxy);
 }
 
 export function buildStrictPromptPolicy(prompt: string, strictPromptText: unknown = DEFAULT_STRICT_PROMPT_TEXT) {
@@ -1029,9 +943,9 @@ export function sortedRequestRecordsForFilter(records: ImageRequestRecord[] = []
 
 export function requestFilterCounts(records: ImageRequestRecord[] = []) {
   return Object.fromEntries(
-    Object.keys(REQUEST_FILTER_LABELS).map((filter) => [
+    REQUEST_FILTERS.map((filter) => [
       filter,
-      filteredRequestRecords(records, filter as RequestFilter).length,
+      filteredRequestRecords(records, filter).length,
     ]),
   ) as Record<RequestFilter, number>;
 }

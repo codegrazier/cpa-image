@@ -6,8 +6,8 @@ import {
   DEFAULT_STRICT_PROMPT_TEXT_EN,
   requestControlSummary as baseRequestControlSummary,
   type AppSettings,
+  type KnownRequestStatus,
   type RequestFilter,
-  type RequestStatus,
 } from "@/lib/image-console";
 
 export type Language = "zh" | "en";
@@ -218,7 +218,7 @@ type Copy = {
   };
   filterLabels: Record<RequestFilter, string>;
   filterEmptyText: Record<RequestFilter, string>;
-  requestStatusLabels: Record<RequestStatus, string>;
+  requestStatusLabels: Record<KnownRequestStatus, string>;
   queueRunning: (settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">, counts: {
     running: number;
     queued: number;

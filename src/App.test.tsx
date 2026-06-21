@@ -1125,7 +1125,7 @@ describe("App", () => {
 
   test("downloads every image from multi-image generation responses", async () => {
     const user = userEvent.setup();
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     storeSettings({ requestIntervalSeconds: 0 });
     vi.stubGlobal(
       "fetch",
@@ -1153,7 +1153,7 @@ describe("App", () => {
 
   test("opens remote URL fallback images in a new tab when download cannot use a blob", async () => {
     const user = userEvent.setup();
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     const imageUrl = "https://cdn.example.com/generated.png";
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       if (String(input) === imageUrl) {
@@ -1186,8 +1186,8 @@ describe("App", () => {
 
   test("exports all completed images as a ZIP after confirmation", async () => {
     const user = userEvent.setup();
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
-    const toastSuccessSpy = vi.spyOn(toast, "success").mockImplementation(() => undefined as never);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const toastSuccessSpy = vi.spyOn(toast, "success").mockImplementation(() => "toast-id");
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:zip-download");
     vi.spyOn(storage, "loadRequestDetails").mockResolvedValue({
       images: [
@@ -1429,7 +1429,7 @@ describe("App", () => {
   test("keeps response JSON available for failed requests", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
-    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     vi.stubGlobal(
       "fetch",
       vi
@@ -1454,7 +1454,7 @@ describe("App", () => {
   test("does not show the cross-origin toast when the upstream cannot be reached", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
-    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     const fetchMock = vi.fn().mockRejectedValue(new Error("Failed to fetch"));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -1470,7 +1470,7 @@ describe("App", () => {
   test("does not show the cross-origin toast for HTTP error responses", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
-    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -1548,7 +1548,7 @@ describe("App", () => {
   test("shows the cross-origin toast in English after switching languages", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
-    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     vi.stubGlobal(
       "fetch",
       vi
@@ -1819,7 +1819,7 @@ describe("App", () => {
 
   test("shows markdown image URLs from streamed completions responses", async () => {
     const user = userEvent.setup();
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:grok-preview");
     storeSettings({ requestIntervalSeconds: 0 });
     const imageUrl = "https://grok.example.com/v1/files/image?id=a45788dd-23fb-4bd2-8012-e1f9991fcffa";
@@ -1864,8 +1864,8 @@ describe("App", () => {
 
   test("falls back to the cross-origin proxy when downloading URL images as blobs", async () => {
     const user = userEvent.setup();
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined as never);
-    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:proxied-image");
     storeSettings({ requestIntervalSeconds: 0, enableCrossOriginProxy: true });
     const imageUrl = "https://grok.example.com/v1/files/image?id=a45788dd-23fb-4bd2-8012-e1f9991fcffa";

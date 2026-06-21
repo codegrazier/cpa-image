@@ -1,32 +1,72 @@
-# GPT Image 2 Console
+# CPA Image
 
-一个 React + TypeScript 前端 Web 应用，用于配置 CLIProxyAPI 的 OpenAI 兼容地址和 API Key，并调用 `gpt-image-2`、Responses 或 Chat Completions 生成图片。
+CPA Image 是一个本地优先的 OpenAI 兼容图像生成与编辑控制台。它提供 `gpt-image-2`、Responses Image Tool、Chat Completions Image Tool 和图片编辑入口，适合在浏览器里批量调试 Prompt、尺寸、质量、并发和响应内容。
 
-界面使用 Vite、Tailwind CSS 和 shadcn/ui 构建，支持请求队列、并发控制、请求间隔、取消请求、本地历史缓存、Prompt 复用、图片下载和响应 JSON 查看。
+界面使用 React、TypeScript、Vite、Tailwind CSS 和 shadcn/ui 构建。应用本身不提供后端服务，所有请求都从浏览器发往用户配置的 OpenAI 兼容 API 地址。
 
-## 使用
+## 功能
+
+- 生成与编辑：支持文字生成图片、选择本地图片编辑、复用历史结果作为编辑输入。
+- 多接口调试：支持 `/v1/images/generations`、`/v1/images/edits`、`/v1/responses`、`/v1/chat/completions`。
+- 队列控制：支持批量请求、并发数量、请求间隔、取消运行中请求、清理失败或已完成请求。
+- 本地工作流：支持 Prompt 历史、置顶、复用、图片下载、批量导出 ZIP、响应 JSON 查看。
+- 国际化：支持中文和英文界面，并在地址路径中保留语言状态。
+
+## 开发
+
+建议使用 Node.js `20.19.0` 或更高版本；如果使用 nvm，可以直接运行 `nvm use` 读取 `.nvmrc` 中的推荐版本。
+
+项目源码以 MIT 许可证开源，但不作为 npm 包发布；`package.json` 中的 `private: true` 用于避免误发布。
 
 ```bash
 npm install
 npm start
 ```
 
-然后打开 `http://localhost:5174`。
+默认开发地址是 `http://127.0.0.1:5174`。
 
-默认 API URL 是 `http://localhost:8317/v1`。如果你的 CLIProxyAPI 部署在其他地址，也可以直接填根地址，例如 `https://proxy.example.com`，应用会自动拼成 `/v1/images/generations`、`/v1/responses` 或 `/v1/chat/completions`。
+## 配置
 
-## CLIProxyAPI 配置要点
+页面默认 API URL 是 `http://localhost:8317/v1`。如果你的代理或兼容服务部署在其他地址，可以直接填写根地址，例如 `https://proxy.example.com`，应用会按功能自动拼接接口路径：
 
-`config.example.yaml` 中默认端口是 `8317`，鉴权来自 `api-keys`。图片生成需要保持 `disable-image-generation: false`，或设置为 `"chat"` 以仅保留图片端点。
+- 图片生成：`/v1/images/generations`
+- 图片编辑：`/v1/images/edits`
+- Responses：`/v1/responses`
+- Chat Completions：`/v1/chat/completions`
+- 连接测试：`/v1/models`
+
+API Key 取决于你的兼容服务配置。若使用 CLIProxyAPI，这里通常填写代理配置里的 `api-keys`，不是 OpenAI 官方 API Key。
+
+## 本地数据
+
+CPA Image 会把设置、Prompt 历史、请求摘要和请求详情保存在当前浏览器本地，用于刷新后恢复工作区。API Key 只有在勾选“在本浏览器记住 API Key”后才会持久化保存。
+
+项目不会主动把本地缓存上传到第三方服务。导出 ZIP、下载图片和查看响应 JSON 都在浏览器端完成。
+
+## 跨域代理
+
+如果目标 API 没有正确配置 CORS，浏览器会阻止请求。页面提供“启用跨域请求代理”选项作为兜底方案：启用后，请求会先经过代理服务转发。
+
+跨域代理可能接触到 API URL、请求头、Prompt、图片和响应内容。只在你信任该代理服务时启用；生产或团队环境更推荐在自己的 API 网关上正确配置 CORS。
 
 ## 常见错误
 
-`HTTP 503 auth_unavailable` 通常表示 CLIProxyAPI 没有可用认证。先确认页面里的 API Key 不是 OpenAI Key，而是 `config.yaml` 里 `api-keys` 配置的代理 key；再确认 CLIProxyAPI 的 `auth-dir` 中有可用的上游登录或导入凭据。
+`HTTP 401` 通常表示 API Key 不被当前兼容服务接受。使用 CLIProxyAPI 时，请确认页面填写的是代理配置里的 `api-keys`。
+
+`HTTP 503 auth_unavailable` 通常表示 CLIProxyAPI 没有可用认证。请确认代理端 `auth-dir` 中已有可用上游登录或导入凭据，并确认图片生成能力未被禁用。
+
+跨域提示只应在浏览器实际阻止跨源请求时出现。普通 HTTP 错误，例如 400、401、404、500，应按接口响应内容显示。
 
 ## 验证
 
 ```bash
 npm test
-npm run typecheck
 npm run build
+git diff --check
 ```
+
+`npm run build` 会先执行 TypeScript 类型检查，再构建静态资源并运行预渲染脚本。
+
+## 许可证
+
+本项目采用 MIT 许可证，详见 `LICENSE`。

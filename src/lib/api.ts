@@ -1,8 +1,8 @@
-import { normalizeModelsEndpoint, responseBodyHasError, responseErrorMessage } from "@/lib/image-console";
+import { normalizeModelsEndpoint } from "@/lib/endpoints";
+import { responseBodyHasError, responseErrorMessage } from "@/lib/image-console";
 
 export function authHeaders(apiKey: string, contentType: string | null = "application/json") {
-  const headers: Record<string, string> = {
-  };
+  const headers: Record<string, string> = {};
 
   if (contentType) {
     headers["Content-Type"] = contentType;
@@ -26,6 +26,21 @@ export async function parseResponseBody(response: Response) {
   }
 }
 
+async function validatedResponseBody(response: Response, language: "zh" | "en") {
+  const body = await parseResponseBody(response);
+  if (!response.ok || responseBodyHasError(body)) {
+    const error = new Error(responseErrorMessage(response.status, body, language)) as Error & {
+      responseBody?: unknown;
+      status?: number;
+    };
+    error.responseBody = body;
+    error.status = response.status;
+    throw error;
+  }
+
+  return body;
+}
+
 export async function postImageGeneration(
   endpoint: string,
   apiKey: string,
@@ -40,18 +55,7 @@ export async function postImageGeneration(
     signal,
   });
 
-  const body = await parseResponseBody(response);
-  if (!response.ok || responseBodyHasError(body)) {
-    const error = new Error(responseErrorMessage(response.status, body, language)) as Error & {
-      responseBody?: unknown;
-      status?: number;
-    };
-    error.responseBody = body;
-    error.status = response.status;
-    throw error;
-  }
-
-  return body;
+  return validatedResponseBody(response, language);
 }
 
 export async function postImageEdit(
@@ -99,18 +103,7 @@ export async function postImageEdit(
     signal,
   });
 
-  const body = await parseResponseBody(response);
-  if (!response.ok || responseBodyHasError(body)) {
-    const error = new Error(responseErrorMessage(response.status, body, language)) as Error & {
-      responseBody?: unknown;
-      status?: number;
-    };
-    error.responseBody = body;
-    error.status = response.status;
-    throw error;
-  }
-
-  return body;
+  return validatedResponseBody(response, language);
 }
 
 export async function fetchModels(
@@ -124,11 +117,5 @@ export async function fetchModels(
     method: "GET",
     headers: authHeaders(apiKey),
   });
-  const body = await parseResponseBody(response);
-
-  if (!response.ok || responseBodyHasError(body)) {
-    throw new Error(responseErrorMessage(response.status, body, language));
-  }
-
-  return { endpoint, body };
+  return { endpoint, body: await validatedResponseBody(response, language) };
 }

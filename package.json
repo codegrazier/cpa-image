@@ -1,8 +1,14 @@
 {
-  "name": "gpt-image-2-console",
+  "name": "cpa-image",
   "version": "0.1.0",
+  "description": "Local-first OpenAI-compatible image generation and editing console.",
+  "license": "MIT",
   "private": true,
   "type": "module",
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5174",
     "start": "vite --host 127.0.0.1 --port 5174",
@@ -14,20 +20,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@radix-ui/react-alert-dialog": "^1.1.16",
-    "@radix-ui/react-checkbox": "^1.3.4",
-    "@radix-ui/react-dialog": "^1.1.16",
-    "@radix-ui/react-label": "^2.1.9",
-    "@radix-ui/react-scroll-area": "^1.2.11",
-    "@radix-ui/react-select": "^2.3.0",
-    "@radix-ui/react-separator": "^1.1.9",
-    "@radix-ui/react-slot": "^1.2.5",
-    "@radix-ui/react-tabs": "^1.1.14",
-    "@radix-ui/react-tooltip": "^1.2.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.17.0",
-    "next-themes": "^0.4.6",
     "radix-ui": "^1.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

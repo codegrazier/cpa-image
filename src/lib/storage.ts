@@ -8,8 +8,6 @@ import {
   PINNED_PROMPT_HISTORY_KEY_BY_MODE,
   PINNED_PROMPT_HISTORY_KEY,
   PROMPT_HISTORY_KEY_BY_MODE,
-  normalizePromptHistory,
-  normalizePinnedPromptHistory,
   prepareImageForDetailCache,
   PROMPT_HISTORY_KEY,
   REQUEST_CACHE_KEY,
@@ -28,6 +26,7 @@ import {
   normalizeModeSettings,
   normalizeSharedSettings,
 } from "@/lib/image-console";
+import { normalizePinnedPromptHistory, normalizePromptHistory } from "@/lib/prompt-history";
 
 interface RequestDetailEntry {
   id: string;
@@ -46,6 +45,11 @@ let cachedRequestWriteChain: Promise<void> = Promise.resolve();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function localStorageStore() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage;
 }
 
 function enqueueCachedRequestWrite<T>(task: () => Promise<T>) {
@@ -125,7 +129,7 @@ function sortCachedRequestRecords(records: CachedRequestRecord[]) {
 }
 
 export function loadSettings(): StoredConsoleSettings {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = localStorageStore()?.getItem(STORAGE_KEY);
   if (!stored) return cloneDefaultStoredSettings();
 
   try {
@@ -162,11 +166,11 @@ export function saveSettings(values: StoredConsoleSettings) {
     persisted.apiKey = normalized.shared.apiKey;
   }
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+  localStorageStore()?.setItem(STORAGE_KEY, JSON.stringify(persisted));
 }
 
 export function resetSettings() {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorageStore()?.removeItem(STORAGE_KEY);
 }
 
 export function loadLastPrompt() {
@@ -176,7 +180,7 @@ export function loadLastPrompt() {
 export function loadLastPromptForMode(mode: ConsoleMode = "generate") {
   try {
     const key = LAST_PROMPT_KEY_BY_MODE[mode] || LAST_PROMPT_KEY;
-    return localStorage.getItem(key) || "";
+    return localStorageStore()?.getItem(key) || "";
   } catch {
     return "";
   }
@@ -185,7 +189,7 @@ export function loadLastPromptForMode(mode: ConsoleMode = "generate") {
 export function saveLastPrompt(prompt: string, mode: ConsoleMode = "generate") {
   try {
     const key = LAST_PROMPT_KEY_BY_MODE[mode] || LAST_PROMPT_KEY;
-    localStorage.setItem(key, String(prompt || ""));
+    localStorageStore()?.setItem(key, String(prompt || ""));
   } catch {
     // 忽略草稿保存失败，避免影响用户继续编辑。
   }
@@ -198,7 +202,7 @@ export function loadPromptHistory() {
 export function loadPromptHistoryForMode(mode: ConsoleMode = "generate") {
   try {
     const key = PROMPT_HISTORY_KEY_BY_MODE[mode] || PROMPT_HISTORY_KEY;
-    const stored = localStorage.getItem(key);
+    const stored = localStorageStore()?.getItem(key);
     return normalizePromptHistory(stored ? JSON.parse(stored) : []);
   } catch {
     return [];
@@ -208,7 +212,7 @@ export function loadPromptHistoryForMode(mode: ConsoleMode = "generate") {
 export function savePromptHistory(history: string[], mode: ConsoleMode = "generate") {
   try {
     const key = PROMPT_HISTORY_KEY_BY_MODE[mode] || PROMPT_HISTORY_KEY;
-    localStorage.setItem(key, JSON.stringify(normalizePromptHistory(history)));
+    localStorageStore()?.setItem(key, JSON.stringify(normalizePromptHistory(history)));
   } catch {
     // 历史 Prompt 只是辅助信息，写入失败时不影响生成。
   }
@@ -221,7 +225,7 @@ export function loadPinnedPromptHistory() {
 export function loadPinnedPromptHistoryForMode(mode: ConsoleMode = "generate") {
   try {
     const key = PINNED_PROMPT_HISTORY_KEY_BY_MODE[mode] || PINNED_PROMPT_HISTORY_KEY;
-    const stored = localStorage.getItem(key);
+    const stored = localStorageStore()?.getItem(key);
     return normalizePinnedPromptHistory(stored ? JSON.parse(stored) : []);
   } catch {
     return [];
@@ -231,7 +235,7 @@ export function loadPinnedPromptHistoryForMode(mode: ConsoleMode = "generate") {
 export function savePinnedPromptHistory(history: string[], mode: ConsoleMode = "generate") {
   try {
     const key = PINNED_PROMPT_HISTORY_KEY_BY_MODE[mode] || PINNED_PROMPT_HISTORY_KEY;
-    localStorage.setItem(key, JSON.stringify(normalizePinnedPromptHistory(history)));
+    localStorageStore()?.setItem(key, JSON.stringify(normalizePinnedPromptHistory(history)));
   } catch {
     // 置顶 Prompt 只是辅助信息，写入失败时不影响生成。
   }
@@ -469,7 +473,7 @@ async function persistCachedRequestRecords(records: CachedRequestRecord[], fallb
 
   if (persisted) {
     try {
-      localStorage.removeItem(REQUEST_CACHE_KEY);
+      localStorageStore()?.removeItem(REQUEST_CACHE_KEY);
     } catch {
       // Ignore cleanup failures.
     }
@@ -478,7 +482,7 @@ async function persistCachedRequestRecords(records: CachedRequestRecord[], fallb
 
   if (fallbackToLocalStorage) {
     try {
-      localStorage.setItem(REQUEST_CACHE_KEY, JSON.stringify(normalized));
+      localStorageStore()?.setItem(REQUEST_CACHE_KEY, JSON.stringify(normalized));
       return true;
     } catch {
       // Ignore quota failures.
@@ -492,14 +496,14 @@ export async function loadCachedRequests(language: "zh" | "en" = "zh") {
   const storedRecords = await readStoreValues<CachedRequestRecord>(REQUEST_RECORDS_STORE_NAME);
   if (storedRecords?.length) {
     try {
-      localStorage.removeItem(REQUEST_CACHE_KEY);
+      localStorageStore()?.removeItem(REQUEST_CACHE_KEY);
     } catch {
       // Ignore cleanup failures.
     }
     return sortCachedRequestRecords(storedRecords).map((record) => restoreCachedRequest(record, language));
   }
 
-  const stored = localStorage.getItem(REQUEST_CACHE_KEY);
+  const stored = localStorageStore()?.getItem(REQUEST_CACHE_KEY);
   if (!stored) return [];
 
   try {
@@ -519,7 +523,7 @@ export function saveCachedRequests(records: ImageRequestRecord[], language: "zh"
 export function clearCachedRequests() {
   void enqueueCachedRequestWrite(() => replaceStoreValues(REQUEST_RECORDS_STORE_NAME, []));
   try {
-    localStorage.removeItem(REQUEST_CACHE_KEY);
+    localStorageStore()?.removeItem(REQUEST_CACHE_KEY);
   } catch {
     // Ignore cleanup failures.
   }

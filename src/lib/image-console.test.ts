@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  addPromptToHistory,
   applyPromptPolicy,
   buildChatCompletionsImagePayload,
   buildChatCompletionsImageRequests,
@@ -22,22 +21,13 @@ import {
   imageBlobFromDataUrl,
   missingImageOutputMessage,
   imageDownloadName,
-  normalizeChatCompletionsEndpoint,
-  normalizeImageEndpoint,
-  normalizeImageEditsEndpoint,
-  normalizePromptHistory,
-  normalizePinnedPromptHistory,
-  normalizeModelsEndpoint,
+  normalizeModeSettings,
   normalizeRequestConcurrency,
   normalizeRequestIntervalSeconds,
-  normalizeResponsesEndpoint,
-  mergePromptHistoryForDisplay,
   prepareImageForDetailCache,
   prepareImageForRuntime,
   prepareImageForThumbnailCache,
   requestFilterCounts,
-  pinPromptHistory,
-  removePromptFromHistory,
   responseBodyHasError,
   responseErrorMessage,
   revisedPromptForResponse,
@@ -48,70 +38,52 @@ import {
   STRICT_PROMPT_FOOTER,
   STRICT_PROMPT_HEADER,
   stripPromptPolicy,
-  unpinPromptHistory,
+  type ImageRequestRecord,
 } from "@/lib/image-console";
 
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
+function requestRecordFixture(overrides: Partial<ImageRequestRecord>): ImageRequestRecord {
+  return {
+    id: "request",
+    title: "260617-1801-1",
+    index: 1,
+    total: 1,
+    method: "gpt-image-2",
+    endpoint: "http://localhost:8317/v1/images/generations",
+    payload: {},
+    sourcePrompt: "",
+    status: "queued",
+    createdAt: 0,
+    startedAt: null,
+    endedAt: null,
+    images: [],
+    response: null,
+    error: "",
+    ...overrides,
+  };
+}
+
 describe("image console logic", () => {
-  test("normalizes base URLs into image endpoints", () => {
-    expect(normalizeImageEndpoint("http://localhost:8317")).toBe("http://localhost:8317/v1/images/generations");
-    expect(normalizeImageEndpoint("http://localhost:8317/v1")).toBe("http://localhost:8317/v1/images/generations");
-    expect(normalizeImageEndpoint("https://proxy.example.com/openai/v1/")).toBe(
-      "https://proxy.example.com/openai/v1/images/generations",
-    );
-    expect(normalizeImageEndpoint("https://proxy.example.com/v1/images/generations")).toBe(
-      "https://proxy.example.com/v1/images/generations",
-    );
-  });
-
-  test("normalizes base URLs into image edit endpoints", () => {
-    expect(normalizeImageEditsEndpoint("http://localhost:8317")).toBe("http://localhost:8317/v1/images/edits");
-    expect(normalizeImageEditsEndpoint("http://localhost:8317/v1")).toBe("http://localhost:8317/v1/images/edits");
-  });
-
-  test("normalizes base URLs into models endpoints", () => {
-    expect(normalizeModelsEndpoint("http://localhost:8317")).toBe("http://localhost:8317/v1/models");
-    expect(normalizeModelsEndpoint("http://localhost:8317/v1")).toBe("http://localhost:8317/v1/models");
-  });
-
-  test("normalizes base URLs into responses endpoints", () => {
-    expect(normalizeResponsesEndpoint("http://localhost:8317")).toBe("http://localhost:8317/v1/responses");
-    expect(normalizeResponsesEndpoint("http://localhost:8317/v1")).toBe("http://localhost:8317/v1/responses");
-    expect(normalizeResponsesEndpoint("https://proxy.example.com/openai/v1/")).toBe(
-      "https://proxy.example.com/openai/v1/responses",
-    );
-  });
-
-  test("normalizes base URLs into chat completions endpoints", () => {
-    expect(normalizeChatCompletionsEndpoint("http://localhost:8317")).toBe(
-      "http://localhost:8317/v1/chat/completions",
-    );
-    expect(normalizeChatCompletionsEndpoint("http://localhost:8317/v1")).toBe(
-      "http://localhost:8317/v1/chat/completions",
-    );
-    expect(normalizeChatCompletionsEndpoint("https://proxy.example.com/openai/v1/")).toBe(
-      "https://proxy.example.com/openai/v1/chat/completions",
-    );
-  });
-
-  test("wraps endpoints with the cross-origin proxy when enabled", () => {
-    expect(normalizeImageEndpoint("http://localhost:8317", true)).toBe(
-      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/images/generations")}`,
-    );
-    expect(normalizeImageEditsEndpoint("http://localhost:8317/v1", true)).toBe(
-      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/images/edits")}`,
-    );
-    expect(normalizeResponsesEndpoint("http://localhost:8317", true)).toBe(
-      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/responses")}`,
-    );
-    expect(normalizeChatCompletionsEndpoint("http://localhost:8317/v1", true)).toBe(
-      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/chat/completions")}`,
-    );
-    expect(normalizeModelsEndpoint("http://localhost:8317", true)).toBe(
-      `https://proxy.cpa-image.site/?targetOrigin=${encodeURIComponent("http://localhost:8317/v1/models")}`,
-    );
+  test("normalizes invalid mode settings back to defaults", () => {
+    expect(
+      normalizeModeSettings({
+        size: "9999x9999",
+        quality: "ultra",
+        background: "glass",
+        outputFormat: "tiff",
+        n: 3,
+        strictPrompt: "yes",
+      }),
+    ).toMatchObject({
+      size: "auto",
+      quality: "auto",
+      background: "auto",
+      outputFormat: "png",
+      n: 3,
+      strictPrompt: true,
+    });
   });
 
   test("uses configurable image model for base64 payloads", () => {
@@ -441,23 +413,23 @@ describe("image console logic", () => {
 
   test("filters request list by queue state groups", () => {
     const records = [
-      { id: "queued", status: "queued" },
-      { id: "running", status: "running" },
-      { id: "done", status: "done" },
-      { id: "error", status: "error" },
-      { id: "canceled", status: "canceled" },
-      { id: "unknown", status: "timeout" },
+      requestRecordFixture({ id: "queued", status: "queued" }),
+      requestRecordFixture({ id: "running", status: "running" }),
+      requestRecordFixture({ id: "done", status: "done" }),
+      requestRecordFixture({ id: "error", status: "error" }),
+      requestRecordFixture({ id: "canceled", status: "canceled" }),
+      requestRecordFixture({ id: "unknown", status: "timeout" }),
     ];
 
-    expect(requestFilterCounts(records as never)).toEqual({
+    expect(requestFilterCounts(records)).toEqual({
       all: 6,
       active: 2,
       done: 1,
       failed: 3,
     });
-    expect(filteredRequestRecords(records as never, "active").map((request) => request.id)).toEqual(["queued", "running"]);
-    expect(filteredRequestRecords(records as never, "done").map((request) => request.id)).toEqual(["done"]);
-    expect(filteredRequestRecords(records as never, "failed").map((request) => request.id)).toEqual([
+    expect(filteredRequestRecords(records, "active").map((request) => request.id)).toEqual(["queued", "running"]);
+    expect(filteredRequestRecords(records, "done").map((request) => request.id)).toEqual(["done"]);
+    expect(filteredRequestRecords(records, "failed").map((request) => request.id)).toEqual([
       "error",
       "canceled",
       "unknown",
@@ -507,46 +479,68 @@ describe("image console logic", () => {
     ).toBe("CPA-Image-260617-1801-1.png");
   });
 
-  test("deduplicates prompt history and keeps the newest 100 prompts", () => {
-    const prompts = Array.from({ length: 25 }, (_, index) => `prompt ${index}`);
-    const normalized = normalizePromptHistory(["prompt 1", "", "prompt 1", ...prompts]);
-    const updated = addPromptToHistory(normalized, "prompt 8");
-    const removed = removePromptFromHistory(updated, "prompt 8");
-
-    expect(normalized).toHaveLength(25);
-    expect(normalized[0]).toBe("prompt 1");
-    expect(normalized[1]).toBe("prompt 0");
-    expect(new Set(normalized).size).toBe(25);
-    expect(updated[0]).toBe("prompt 8");
-    expect(updated).toHaveLength(25);
-    expect(removed).not.toContain("prompt 8");
-  });
-
-  test("pins prompts above recent history without dropping them", () => {
-    const pinned = normalizePinnedPromptHistory(["pinned", "pinned", "older"]);
-    const repinned = pinPromptHistory(pinned, "fresh");
-    const unpinned = unpinPromptHistory(repinned, "pinned");
-    const merged = mergePromptHistoryForDisplay(repinned, ["recent 1", "pinned", "recent 2"]);
-
-    expect(pinned).toEqual(["pinned", "older"]);
-    expect(repinned[0]).toBe("fresh");
-    expect(repinned).toContain("pinned");
-    expect(unpinned).not.toContain("pinned");
-    expect(merged.map((item) => item.prompt)).toEqual(["fresh", "pinned", "older", "recent 1", "recent 2"]);
-    expect(merged[0].pinned).toBe(true);
-    expect(merged[3].pinned).toBe(false);
-  });
-
   test("sorts request lists by title, completion, and failure time descending", () => {
     const records = [
-      { id: "running-2", title: "260613-1838-2", status: "running", createdAt: 5000, index: 2, endedAt: null },
-      { id: "running-10", title: "260613-1838-10", status: "queued", createdAt: 5000, index: 10, endedAt: null },
-      { id: "created-last", title: "260613-1838-8", status: "done", createdAt: 3000, index: 8, endedAt: 4000, completedAt: 4000 },
-      { id: "finished-last", title: "260613-1839-1", status: "done", createdAt: 1000, index: 1, endedAt: 9000, completedAt: 9000 },
-      { id: "finished-middle", title: "260613-1837-5", status: "done", createdAt: 2000, index: 5, endedAt: 6000, completedAt: 6000 },
-      { id: "failed-new", title: "260613-1838-11", status: "error", createdAt: 4500, index: 11, endedAt: 9500 },
-      { id: "canceled-old", title: "260613-1836-7", status: "canceled", createdAt: 2500, index: 7, endedAt: 7000 },
-    ] as never;
+      requestRecordFixture({
+        id: "running-2",
+        title: "260613-1838-2",
+        status: "running",
+        createdAt: 5000,
+        index: 2,
+        endedAt: null,
+      }),
+      requestRecordFixture({
+        id: "running-10",
+        title: "260613-1838-10",
+        status: "queued",
+        createdAt: 5000,
+        index: 10,
+        endedAt: null,
+      }),
+      requestRecordFixture({
+        id: "created-last",
+        title: "260613-1838-8",
+        status: "done",
+        createdAt: 3000,
+        index: 8,
+        endedAt: 4000,
+        completedAt: 4000,
+      }),
+      requestRecordFixture({
+        id: "finished-last",
+        title: "260613-1839-1",
+        status: "done",
+        createdAt: 1000,
+        index: 1,
+        endedAt: 9000,
+        completedAt: 9000,
+      }),
+      requestRecordFixture({
+        id: "finished-middle",
+        title: "260613-1837-5",
+        status: "done",
+        createdAt: 2000,
+        index: 5,
+        endedAt: 6000,
+        completedAt: 6000,
+      }),
+      requestRecordFixture({
+        id: "failed-new",
+        title: "260613-1838-11",
+        status: "error",
+        createdAt: 4500,
+        index: 11,
+        endedAt: 9500,
+      }),
+      requestRecordFixture({
+        id: "canceled-old",
+        title: "260613-1836-7",
+        status: "canceled",
+        createdAt: 2500,
+        index: 7,
+        endedAt: 7000,
+      }),
+    ];
 
     expect(sortedRequestRecordsForFilter(records, "done").map((request) => request.id)).toEqual([
       "finished-last",
@@ -574,10 +568,31 @@ describe("image console logic", () => {
 
   test("sorts title-based active lists with numeric suffixes in descending order", () => {
     const records = [
-      { id: "queued-2", title: "260613-1838-2", status: "queued", createdAt: 1000, index: 2, endedAt: null },
-      { id: "queued-10", title: "260613-1838-10", status: "queued", createdAt: 1000, index: 10, endedAt: null },
-      { id: "queued-1", title: "260612-2359-1", status: "queued", createdAt: 1000, index: 1, endedAt: null },
-    ] as never;
+      requestRecordFixture({
+        id: "queued-2",
+        title: "260613-1838-2",
+        status: "queued",
+        createdAt: 1000,
+        index: 2,
+        endedAt: null,
+      }),
+      requestRecordFixture({
+        id: "queued-10",
+        title: "260613-1838-10",
+        status: "queued",
+        createdAt: 1000,
+        index: 10,
+        endedAt: null,
+      }),
+      requestRecordFixture({
+        id: "queued-1",
+        title: "260612-2359-1",
+        status: "queued",
+        createdAt: 1000,
+        index: 1,
+        endedAt: null,
+      }),
+    ];
 
     expect(sortedRequestRecordsForFilter(records, "active").map((request) => request.id)).toEqual([
       "queued-10",

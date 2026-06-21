@@ -3,7 +3,14 @@ import { toast } from "sonner";
 
 import { fetchModels, postImageEdit, postImageGeneration } from "@/lib/api";
 import {
-  addPromptToHistory,
+  CROSS_ORIGIN_PROXY_PREFIX,
+  normalizeChatCompletionsEndpoint,
+  normalizeImageEditsEndpoint,
+  normalizeImageEndpoint,
+  normalizeModelsEndpoint,
+  normalizeResponsesEndpoint,
+} from "@/lib/endpoints";
+import {
   buildEditImagePayload,
   buildEditImageRequests,
   buildChatCompletionsImagePayload,
@@ -13,7 +20,6 @@ import {
   buildResponsesImagePayload,
   buildResponsesImageRequests,
   createRequestRecords,
-  CROSS_ORIGIN_PROXY_PREFIX,
   DEFAULTS,
   extractImages,
   formatRequestTiming,
@@ -23,16 +29,10 @@ import {
   imageDownloadName,
   imageBlobFromDataUrl,
   missingImageOutputMessage,
-  mergePromptHistoryForDisplay,
   prepareImageForDetailCacheWithDimensions,
   type ConsoleMode,
-  normalizeChatCompletionsEndpoint,
-  normalizeImageEditsEndpoint,
-  normalizeImageEndpoint,
-  normalizeModelsEndpoint,
   normalizeRequestConcurrency,
   normalizeRequestIntervalSeconds,
-  normalizeResponsesEndpoint,
   payloadOutputFormat,
   payloadSize,
   prepareImageForDetailCache,
@@ -47,8 +47,6 @@ import {
   requestFilterCounts,
   requestImageCount,
   requestMatchesFilter,
-  removePromptFromHistory,
-  pinPromptHistory,
   reusablePromptForRequest,
   sanitizeResponseForDisplay,
   sortedRequestRecordsForFilter,
@@ -63,8 +61,16 @@ import {
   type RequestFilter,
   mergeSettingsForMode,
   isDefaultStrictPromptText,
-  unpinPromptHistory,
 } from "@/lib/image-console";
+import {
+  addPromptToHistory,
+  mergePromptHistoryForDisplay,
+  pinPromptHistory,
+  removePromptFromHistory,
+  unpinPromptHistory,
+} from "@/lib/prompt-history";
+import { applyCompletedRequestResult, applyFailedRequestResult, imageSizeBytes } from "@/lib/request-result";
+import { adjacentVisibleRequestId, isActiveRequest, nextQueueRunPlan } from "@/lib/request-queue";
 import { createZipBlob, type ZipFileEntry } from "@/lib/zip";
 import {
   clearCachedRequests,
@@ -85,8 +91,8 @@ import {
 } from "@/lib/storage";
 import { getCopy, useI18n } from "@/lib/i18n";
 
-type ConnectionTone = "default" | "busy" | "ok" | "error";
-type ConnectionStatus = { label: string; tone: ConnectionTone };
+export type ConnectionTone = "default" | "busy" | "ok" | "error";
+export type ConnectionStatus = { label: string; tone: ConnectionTone };
 
 interface StatusMessage {
   state: string;
@@ -296,26 +302,6 @@ function missingConnectionMessage(settings: Pick<AppSettings, "baseUrl" | "apiKe
   const apiKey = String(settings.apiKey || "").trim();
   if (baseUrl && apiKey) return "";
   return copy.generator.connectionRequired;
-}
-
-function adjacentVisibleRequestId(records: ImageRequestRecord[], requestId: string, filter: RequestFilter) {
-  const visibleRequests = sortedRequestRecordsForFilter(records, filter);
-  const index = visibleRequests.findIndex((request) => request.id === requestId);
-  if (index < 0) return null;
-
-  for (let cursor = index + 1; cursor < visibleRequests.length; cursor += 1) {
-    if (requestMatchesFilter(visibleRequests[cursor], filter)) return visibleRequests[cursor].id;
-  }
-
-  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-    if (requestMatchesFilter(visibleRequests[cursor], filter)) return visibleRequests[cursor].id;
-  }
-
-  return null;
-}
-
-function isActiveRequest(request: ImageRequestRecord) {
-  return request.status === "queued" || request.status === "running";
 }
 
 function isGeneratedImage(value: ReturnType<typeof prepareImageForDetailCache>): value is GeneratedImage {
@@ -688,7 +674,7 @@ export function useImageConsole() {
       }
       return { label: copy.tests.test, tone: "default" };
     });
-  }, [copy]);
+  }, []);
 
   useEffect(() => {
     const previousImages = editImagesRef.current;
@@ -820,7 +806,7 @@ export function useImageConsole() {
         const thumbnail =
           detail?.thumbnail ||
           (normalizedDetailImages[0] ? await prepareImageForThumbnailCache(normalizedDetailImages[0]) : selectedRequest.thumbnail || null);
-        const imageSizeBytes = normalizedDetailImages.reduce((sum, image) => sum + (image.blob?.size || 0), 0);
+        const detailImageSizeBytes = imageSizeBytes(normalizedDetailImages);
 
         if (detail && !cancelled) {
           const responseSource = detail.rawResponse ?? detail.response ?? null;
@@ -853,7 +839,7 @@ export function useImageConsole() {
                   rawResponse: detail?.rawResponse ?? detail?.response ?? null,
                   thumbnail: request.thumbnail || thumbnail || null,
                   imageCount: detailImages.length || request.imageCount || normalizedDetailImages.length || 0,
-                  imageSizeBytes: request.imageSizeBytes || imageSizeBytes,
+                  imageSizeBytes: request.imageSizeBytes || detailImageSizeBytes,
                   imageResolution:
                     request.imageResolution ||
                     (normalizedDetailImages[0]?.width && normalizedDetailImages[0]?.height
@@ -1012,11 +998,7 @@ export function useImageConsole() {
         const detailImages = (
           await Promise.all(localImages.map((image) => prepareImageForDetailCacheWithDimensions(image)))
         ).filter(isGeneratedImage);
-        const imageSizeBytes = detailImages.reduce((sum, image) => sum + (image.blob?.size || 0), 0);
         const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
-        const runtimeSourceImages =
-          detailImages.length === localImages.length && detailImages.length > 0 ? detailImages : localImages;
-        const images = shouldKeepRuntimeDetails ? runtimeSourceImages.map(prepareImageForRuntime) : [];
         const thumbnail = localImages[0] ? await prepareThumbnailFromImage(localImages[0]) : null;
         const displayResponse = sanitizeResponseForDisplay(body);
         const missingImageMessage = extractedImages.length ? "" : missingImageOutputMessage(body, language);
@@ -1037,26 +1019,18 @@ export function useImageConsole() {
         commitRecords((records) =>
           records.map((item) =>
             item.id === requestId
-                ? {
-                  ...item,
-                  thumbnail: thumbnail || item.thumbnail || null,
-                  response: shouldKeepRuntimeDetails ? displayResponse : null,
+              ? applyCompletedRequestResult(item, {
                   rawResponse: body,
-                  images,
-                  imageCount: extractedImages.length,
-                  imageSizeBytes: item.imageSizeBytes || imageSizeBytes,
-                  imageResolution:
-                    item.imageResolution ||
-                    (detailImages[0]?.width && detailImages[0]?.height
-                      ? `${detailImages[0].width}x${detailImages[0].height}`
-                      : ""),
-                  hasCachedDetails: true,
-                  status: extractedImages.length ? "done" : "error",
-                  error: missingImageMessage,
+                  displayResponse,
+                  extractedImageCount: extractedImages.length,
+                  localImages,
+                  detailImages,
+                  thumbnail,
+                  missingImageMessage,
+                  keepRuntimeDetails: shouldKeepRuntimeDetails,
                   endedAt: performance.now(),
-                  completedAt: extractedImages.length ? Date.now() : item.completedAt ?? null,
-                  editImages: [],
-                }
+                  completedAt: Date.now(),
+                })
               : item,
           ),
         );
@@ -1070,25 +1044,11 @@ export function useImageConsole() {
         commitRecords((records) =>
           records.map((item) =>
             item.id === requestId
-              ? {
-                  ...item,
-                  status: typedError.name === "AbortError" ? "canceled" : "error",
-                  error: typedError.name === "AbortError" ? copy.runtime.requestCanceled : typedError.message,
-                  response:
-                    typedError.name === "AbortError"
-                      ? item.response
-                      : typedError.responseBody == null
-                        ? null
-                        : sanitizeResponseForDisplay(typedError.responseBody),
-                  rawResponse:
-                    typedError.name === "AbortError"
-                      ? item.rawResponse
-                      : typedError.responseBody == null
-                        ? null
-                        : typedError.responseBody,
+              ? applyFailedRequestResult(item, {
+                  error: typedError,
+                  requestCanceledMessage: copy.runtime.requestCanceled,
                   endedAt: performance.now(),
-                  editImages: [],
-                }
+                })
               : item,
           ),
         );
@@ -1110,30 +1070,25 @@ export function useImageConsole() {
   const scheduleQueue = useCallback(() => {
     if (queueTimerRef.current != null) return;
 
-    const records = requestRecordsRef.current;
-    const currentSettings = settingsRef.current;
-    const runningCount = records.filter((request) => request.status === "running").length;
-    const openSlots = Math.max(0, normalizeRequestConcurrency(currentSettings.requestConcurrency) - runningCount);
-    const [nextRequest] = records.filter((request) => request.status === "queued").slice(0, openSlots);
+    const plan = nextQueueRunPlan({
+      records: requestRecordsRef.current,
+      settings: settingsRef.current,
+      lastStartedAt: lastRequestStartedAtRef.current,
+      now: performance.now(),
+    });
 
-    if (!nextRequest) return;
+    if (plan.type === "idle") return;
 
-    const intervalMs = normalizeRequestIntervalSeconds(currentSettings.requestIntervalSeconds) * 1000;
-    const elapsedSinceLastStart = lastRequestStartedAtRef.current
-      ? performance.now() - lastRequestStartedAtRef.current
-      : intervalMs;
-    const delayMs = Math.max(0, intervalMs - elapsedSinceLastStart);
-
-    if (delayMs > 0) {
+    if (plan.type === "delay") {
       queueTimerRef.current = window.setTimeout(() => {
         queueTimerRef.current = null;
         scheduleQueueRef.current();
-      }, delayMs);
+      }, plan.delayMs);
       return;
     }
 
-    lastRequestStartedAtRef.current = performance.now();
-    runRequestRef.current(nextRequest.id);
+    lastRequestStartedAtRef.current = plan.startedAt;
+    runRequestRef.current(plan.requestId);
 
     window.setTimeout(() => {
       scheduleQueueRef.current();
