@@ -1,6 +1,6 @@
 # CPA Image
 
-CPA Image 是一个本地优先的 OpenAI 兼容图像生成与编辑控制台。它提供 `gpt-image-2`、Responses Image Tool、Chat Completions Image Tool 和图片编辑入口，适合在浏览器里批量调试 Prompt、尺寸、质量、并发和响应内容。
+CPA Image 是一个本地优先的 OpenAI 兼容图像生成与编辑控制台。
 
 界面使用 React、TypeScript、Vite、Tailwind CSS 和 shadcn/ui 构建。应用本身不提供后端服务，所有请求都从浏览器发往用户配置的 OpenAI 兼容 API 地址。
 
@@ -47,15 +47,7 @@ CPA Image 会把设置、Prompt 历史、请求摘要和请求详情保存在当
 
 如果目标 API 没有正确配置 CORS，浏览器会阻止请求。页面提供“启用跨域请求代理”选项作为兜底方案：启用后，请求会先经过代理服务转发。
 
-跨域代理可能接触到 API URL、请求头、Prompt、图片和响应内容。只在你信任该代理服务时启用；生产或团队环境更推荐在自己的 API 网关上正确配置 CORS。
-
-## 常见错误
-
-`HTTP 401` 通常表示 API Key 不被当前兼容服务接受。使用 CLIProxyAPI 时，请确认页面填写的是代理配置里的 `api-keys`。
-
-`HTTP 503 auth_unavailable` 通常表示 CLIProxyAPI 没有可用认证。请确认代理端 `auth-dir` 中已有可用上游登录或导入凭据，并确认图片生成能力未被禁用。
-
-跨域提示只应在浏览器实际阻止跨源请求时出现。普通 HTTP 错误，例如 400、401、404、500，应按接口响应内容显示。
+跨域代理可能接触到 API URL、请求头、Prompt、图片和响应内容。只在你信任该代理服务时启用；更推荐在自己的 API 网关上正确配置 CORS。
 
 ## 验证
 
