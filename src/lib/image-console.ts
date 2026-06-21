@@ -28,20 +28,17 @@ export const PINNED_PROMPT_HISTORY_KEY_BY_MODE = {
   edit: "CPA-Image-edit-pinned-prompts",
 } as const;
 
+export const SIZE_OPTION_GROUPS = {
+  square: ["1024x1024", "2048x2048"],
+  landscape: ["1440x1088", "1536x1024", "2048x1152", "2048x1536", "3840x2160"],
+  portrait: ["1088x1440", "1024x1536", "1152x2048", "1536x2048", "2160x3840"],
+} as const;
+
 export const SIZE_OPTIONS = [
   "auto",
-  "1024x1024",
-  "2048x2048",
-  "1440x1080",
-  "2048x1536",
-  "1536x1024",
-  "2048x1152",
-  "3840x2160",
-  "1024x1536",
-  "1080x1440",
-  "1536x2048",
-  "1152x2048",
-  "2160x3840",
+  ...SIZE_OPTION_GROUPS.square,
+  ...SIZE_OPTION_GROUPS.landscape,
+  ...SIZE_OPTION_GROUPS.portrait,
 ] as const;
 
 export const QUALITY_OPTIONS = ["auto", "low", "medium", "high"] as const;

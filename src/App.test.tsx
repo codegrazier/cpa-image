@@ -922,15 +922,15 @@ describe("App", () => {
       "auto",
       "1024x1024",
       "2048x2048 (2K)",
-      "1440x1080",
-      "2048x1536 (2K)",
+      "1440x1088",
       "1536x1024",
       "2048x1152 (2K)",
+      "2048x1536 (2K)",
       "3840x2160 (4K)",
-      "1080x1440",
+      "1088x1440",
       "1024x1536",
-      "1536x2048 (2K)",
       "1152x2048 (2K)",
+      "1536x2048 (2K)",
       "2160x3840 (4K)",
     ]);
     await user.click(await screen.findByRole("option", { name: "1152x2048 (2K)" }));
@@ -1434,8 +1434,7 @@ describe("App", () => {
       "fetch",
       vi
         .fn()
-        .mockRejectedValueOnce(new Error("Failed to fetch"))
-        .mockResolvedValueOnce(new Response("", { status: 200 })),
+        .mockRejectedValueOnce(new Error("CORS request blocked by Access-Control-Allow-Origin")),
     );
 
     renderApp();
@@ -1449,7 +1448,7 @@ describe("App", () => {
     await user.click(responseJsonButton);
 
     const dialog = screen.getByRole("dialog", { name: "响应 JSON" });
-    expect(within(dialog).getByText(/Failed to fetch/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/CORS request blocked/)).toBeInTheDocument();
   });
 
   test("does not show the cross-origin toast when the upstream cannot be reached", async () => {
@@ -1463,9 +1462,31 @@ describe("App", () => {
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(toastErrorSpy).not.toHaveBeenCalledWith("浏览器阻止了跨域请求，请检查上游代理的 CORS 配置。");
     expect(await screen.findByRole("button", { name: /响应 JSON/ })).toBeInTheDocument();
+  });
+
+  test("does not show the cross-origin toast for HTTP error responses", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => undefined as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { message: "not found" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    await screen.findByRole("button", { name: /响应 JSON/ });
+    expect(toastErrorSpy).not.toHaveBeenCalledWith("浏览器阻止了跨域请求，请检查上游代理的 CORS 配置。");
   });
 
   test("restores cached raw response JSON for failed requests after reload", async () => {
@@ -1532,8 +1553,7 @@ describe("App", () => {
       "fetch",
       vi
         .fn()
-        .mockRejectedValueOnce(new Error("Failed to fetch"))
-        .mockResolvedValueOnce(new Response("", { status: 200 })),
+        .mockRejectedValueOnce(new Error("CORS request blocked by Access-Control-Allow-Origin")),
     );
 
     renderApp();

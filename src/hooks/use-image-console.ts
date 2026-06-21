@@ -153,6 +153,22 @@ function formatResponseJsonText(value: unknown) {
   return JSON.stringify(sanitizeResponseForDisplay(value), null, 2);
 }
 
+function isExplicitCrossOriginFetchFailure(error: unknown) {
+  const message =
+    error && typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string"
+      ? String((error as { message: string }).message).trim().toLowerCase()
+      : "";
+
+  if (!message) return false;
+  return [
+    "cors",
+    "cross-origin",
+    "cross origin",
+    "access-control-allow-origin",
+    "access control allow origin",
+  ].some((pattern) => message.includes(pattern));
+}
+
 function isFetchNetworkFailure(error: unknown) {
   const message =
     error && typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string"
@@ -160,43 +176,21 @@ function isFetchNetworkFailure(error: unknown) {
       : "";
 
   if (!message) return false;
-  if (
-    ![
-      "failed to fetch",
-      "networkerror when attempting to fetch resource.",
-      "load failed",
-      "fetch failed",
-    ].some((pattern) => message.includes(pattern))
-  ) {
-    return false;
-  }
-
-  return true;
+  return [
+    "failed to fetch",
+    "networkerror when attempting to fetch resource.",
+    "load failed",
+    "fetch failed",
+  ].some((pattern) => message.includes(pattern));
 }
 
-async function isCrossOriginFetchFailure(endpoint: string, error: unknown) {
-  if (!isFetchNetworkFailure(error)) return false;
+function isCrossOriginFetchFailure(endpoint: string, error: unknown) {
+  if (!isExplicitCrossOriginFetchFailure(error)) return false;
 
   try {
     const url = new URL(endpoint, window.location.href);
     if (url.origin === window.location.origin) return false;
-
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 2000);
-
-    try {
-      await fetch(url.toString(), {
-        method: "HEAD",
-        mode: "no-cors",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      return true;
-    } catch {
-      return false;
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
+    return true;
   } catch {
     return false;
   }

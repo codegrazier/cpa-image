@@ -289,6 +289,11 @@ type Copy = {
     selectAtLeastOneImage: string;
     maxEditImages: (count: number) => string;
     size: string;
+    sizeGroups: {
+      square: string;
+      landscape: string;
+      portrait: string;
+    };
     quality: string;
     count: string;
     keepOriginalPrompt: string;
@@ -496,6 +501,11 @@ const COPY: Record<Language, Copy> = {
       selectAtLeastOneImage: "请选择一张或多张图片。",
       maxEditImages: (count) => `编辑模式最多选择 ${count} 张图片。`,
       size: "尺寸",
+      sizeGroups: {
+        square: "方形",
+        landscape: "横屏",
+        portrait: "竖屏",
+      },
       quality: "质量",
       count: "请求次数",
       keepOriginalPrompt: "保持原始 Prompt",
@@ -714,6 +724,11 @@ const COPY: Record<Language, Copy> = {
       selectAtLeastOneImage: "Please choose one or more images.",
       maxEditImages: (count) => `Edit mode supports up to ${count} images.`,
       size: "Size",
+      sizeGroups: {
+        square: "Square",
+        landscape: "Landscape",
+        portrait: "Portrait",
+      },
       quality: "Quality",
       count: "Request count",
       keepOriginalPrompt: "Keep original prompt",
