@@ -41,7 +41,19 @@ interface SaveRequestDetailsOptions {
   prune?: boolean;
 }
 
+interface DeleteRequestDetailsOptions {
+  retainTombstones?: boolean;
+}
+
 let cachedRequestWriteChain: Promise<void> = Promise.resolve();
+let requestDetailWriteChain: Promise<void> = Promise.resolve();
+let requestDetailClearVersion = 0;
+const deletedRequestDetailIds = new Set<string>();
+const latestClearedRequestDetailIds = new Set<string>();
+const blockedRequestDetailIds = new Set<string>();
+const blockedRequestDetailIdQueue: string[] = [];
+const pendingRequestDetailWrites = new Map<string, Promise<void>>();
+const BLOCKED_REQUEST_DETAIL_LIMIT = 2000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -56,6 +68,76 @@ function enqueueCachedRequestWrite<T>(task: () => Promise<T>) {
   const run = cachedRequestWriteChain.then(task, task);
   cachedRequestWriteChain = run.then(() => undefined, () => undefined);
   return run;
+}
+
+function enqueueRequestDetailWrite<T>(task: () => Promise<T>) {
+  const run = requestDetailWriteChain.then(task, task);
+  requestDetailWriteChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function trackRequestDetailWrite<T>(ids: string[], write: Promise<T>): Promise<T> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const tracked = write.then(() => undefined, () => undefined);
+
+  for (const id of uniqueIds) {
+    pendingRequestDetailWrites.set(id, tracked);
+  }
+
+  tracked.finally(() => {
+    for (const id of uniqueIds) {
+      if (pendingRequestDetailWrites.get(id) === tracked) {
+        pendingRequestDetailWrites.delete(id);
+      }
+    }
+    cleanupDeletedRequestDetailIds(uniqueIds);
+  });
+
+  return write;
+}
+
+function cleanupDeletedRequestDetailIds(ids: string[]) {
+  for (const id of ids) {
+    if (!pendingRequestDetailWrites.has(id)) {
+      deletedRequestDetailIds.delete(id);
+    }
+  }
+}
+
+function isRequestDetailWriteBlocked(id: string) {
+  return deletedRequestDetailIds.has(id) || latestClearedRequestDetailIds.has(id) || blockedRequestDetailIds.has(id);
+}
+
+function blockRequestDetailWrites(ids: string[], latestClear = false) {
+  if (latestClear) {
+    // 最近一次全量清空需要完整阻断，防止清空后仍在运行的旧请求迟到写回详情。
+    // 更早的清空批次进入有限窗口，避免长期运行时只因 tombstone 持续增长。
+    for (const id of latestClearedRequestDetailIds) {
+      if (!blockedRequestDetailIds.has(id)) {
+        blockedRequestDetailIds.add(id);
+        blockedRequestDetailIdQueue.push(id);
+      }
+    }
+
+    latestClearedRequestDetailIds.clear();
+    for (const id of ids) {
+      if (id) latestClearedRequestDetailIds.add(id);
+    }
+  }
+
+  for (const id of ids) {
+    if (latestClear) continue;
+    if (!id || blockedRequestDetailIds.has(id)) continue;
+    blockedRequestDetailIds.add(id);
+    blockedRequestDetailIdQueue.push(id);
+  }
+
+  while (blockedRequestDetailIdQueue.length > BLOCKED_REQUEST_DETAIL_LIMIT) {
+    const expiredId = blockedRequestDetailIdQueue.shift();
+    if (expiredId) {
+      blockedRequestDetailIds.delete(expiredId);
+    }
+  }
 }
 
 function cloneDefaultStoredSettings(): StoredConsoleSettings {
@@ -332,6 +414,8 @@ function closeDb(db: IDBDatabase | null) {
 }
 
 function requestDetailEntryFromRecord(request: ImageRequestRecord): RequestDetailEntry | null {
+  if (isRequestDetailWriteBlocked(request.id)) return null;
+
   const images: GeneratedImage[] = [];
   let hasRuntimeOnlyImage = false;
 
@@ -360,42 +444,55 @@ function requestDetailEntryFromRecord(request: ImageRequestRecord): RequestDetai
   };
 }
 
-export async function saveRequestDetails(records: ImageRequestRecord[], options: SaveRequestDetailsOptions = {}) {
-  let db: IDBDatabase | null = null;
+export function saveRequestDetails(records: ImageRequestRecord[], options: SaveRequestDetailsOptions = {}) {
+  const writeClearVersion = requestDetailClearVersion;
+  const write = enqueueRequestDetailWrite(async () => {
+    if (writeClearVersion !== requestDetailClearVersion) return;
 
-  try {
-    db = await openConsoleDb();
-    if (!db) return;
+    const writableRecords = records.filter((request) => !isRequestDetailWriteBlocked(request.id));
+    if (!writableRecords.length) return;
 
-    const prune = options.prune ?? true;
-    const keepIds = new Set(records.map((request) => request.id));
-    const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
-    const done = transactionDone(transaction);
-    const store = transaction.objectStore(REQUEST_DETAIL_STORE_NAME);
+    let db: IDBDatabase | null = null;
 
-    for (const request of records) {
-      const entry = requestDetailEntryFromRecord(request);
-      if (entry) store.put(entry);
-    }
+    try {
+      db = await openConsoleDb();
+      if (!db) return;
 
-    if (prune) {
-      const keys = await requestToPromise<IDBValidKey[]>(store.getAllKeys());
-      for (const key of keys) {
-        if (!keepIds.has(String(key))) {
-          store.delete(key);
+      const prune = options.prune ?? true;
+      const keepIds = new Set(writableRecords.map((request) => request.id));
+      const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
+      const done = transactionDone(transaction);
+      const store = transaction.objectStore(REQUEST_DETAIL_STORE_NAME);
+
+      for (const request of writableRecords) {
+        const entry = requestDetailEntryFromRecord(request);
+        if (entry) store.put(entry);
+      }
+
+      if (prune) {
+        const keys = await requestToPromise<IDBValidKey[]>(store.getAllKeys());
+        for (const key of keys) {
+          if (!keepIds.has(String(key))) {
+            store.delete(key);
+          }
         }
       }
-    }
 
-    await done;
-  } catch {
-    // localStorage 仍保留请求元数据，即使大响应详情无法写入 IndexedDB。
-  } finally {
-    closeDb(db);
-  }
+      await done;
+    } catch {
+      // localStorage 仍保留请求元数据，即使大响应详情无法写入 IndexedDB。
+    } finally {
+      closeDb(db);
+    }
+  });
+
+  const ids = records.map((request) => request.id);
+  return trackRequestDetailWrite(ids, write);
 }
 
 export async function loadRequestDetails(id: string) {
+  await pendingRequestDetailWrites.get(id)?.catch(() => undefined);
+
   let db: IDBDatabase | null = null;
 
   try {
@@ -424,47 +521,70 @@ export async function loadRequestDetails(id: string) {
   }
 }
 
-export async function deleteRequestDetails(ids: string[]) {
-  if (!ids.length) return;
+export function deleteRequestDetails(ids: string[], options: DeleteRequestDetailsOptions = {}): Promise<void> {
+  if (!ids.length) return Promise.resolve();
 
-  let db: IDBDatabase | null = null;
-
-  try {
-    db = await openConsoleDb();
-    if (!db) return;
-
-    const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
-    const done = transactionDone(transaction);
-    const store = transaction.objectStore(REQUEST_DETAIL_STORE_NAME);
-
+  if (options.retainTombstones) {
+    blockRequestDetailWrites(ids, true);
+  } else {
     for (const id of ids) {
-      store.delete(id);
+      deletedRequestDetailIds.add(id);
     }
-
-    await done;
-  } catch {
-    // Ignore cache cleanup failures.
-  } finally {
-    closeDb(db);
   }
+
+  const write = enqueueRequestDetailWrite(async () => {
+    let db: IDBDatabase | null = null;
+
+    try {
+      db = await openConsoleDb();
+      if (!db) return;
+
+      const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
+      const done = transactionDone(transaction);
+      const store = transaction.objectStore(REQUEST_DETAIL_STORE_NAME);
+
+      for (const id of ids) {
+        store.delete(id);
+      }
+
+      await done;
+    } catch {
+      // Ignore cache cleanup failures.
+    } finally {
+      closeDb(db);
+    }
+  });
+
+  const trackedWrite = trackRequestDetailWrite(ids, write);
+  if (!options.retainTombstones) {
+    void trackedWrite.finally(() => cleanupDeletedRequestDetailIds(ids));
+  }
+  return trackedWrite;
 }
 
-export async function clearRequestDetails() {
-  let db: IDBDatabase | null = null;
+export function clearRequestDetails(): Promise<void> {
+  // clearVersion 取消已排队的详情写入；clear all 的 tombstone 另行阻断清空后才完成的旧请求。
+  requestDetailClearVersion += 1;
 
-  try {
-    db = await openConsoleDb();
-    if (!db) return;
+  const write = enqueueRequestDetailWrite(async () => {
+    let db: IDBDatabase | null = null;
 
-    const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
-    const done = transactionDone(transaction);
-    transaction.objectStore(REQUEST_DETAIL_STORE_NAME).clear();
-    await done;
-  } catch {
-    // Ignore cache cleanup failures.
-  } finally {
-    closeDb(db);
-  }
+    try {
+      db = await openConsoleDb();
+      if (!db) return;
+
+      const transaction = db.transaction(REQUEST_DETAIL_STORE_NAME, "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(REQUEST_DETAIL_STORE_NAME).clear();
+      await done;
+    } catch {
+      // Ignore cache cleanup failures.
+    } finally {
+      closeDb(db);
+    }
+  });
+
+  return write;
 }
 
 async function persistCachedRequestRecords(records: CachedRequestRecord[], fallbackToLocalStorage = true) {

@@ -60,7 +60,7 @@ export function applyCompletedRequestResult(
     ...request,
     thumbnail: thumbnail || request.thumbnail || null,
     response: keepRuntimeDetails ? displayResponse : null,
-    rawResponse,
+    rawResponse: keepRuntimeDetails ? rawResponse : null,
     images: runtimeImagesForRequest({ localImages, detailImages, keepRuntimeDetails }),
     imageCount: extractedImageCount,
     imageSizeBytes: request.imageSizeBytes || imageSizeBytes(detailImages),
@@ -80,21 +80,30 @@ export function applyFailedRequestResult(
     error,
     requestCanceledMessage,
     endedAt,
+    keepRuntimeDetails = true,
   }: {
     error: Error & { responseBody?: unknown };
     requestCanceledMessage: string;
     endedAt: number;
+    keepRuntimeDetails?: boolean;
   },
 ): ImageRequestRecord {
   const aborted = error.name === "AbortError";
   const responseBody = error.responseBody;
+  const nextResponse = aborted
+    ? keepRuntimeDetails ? request.response : null
+    : responseBody == null || !keepRuntimeDetails ? null : sanitizeResponseForDisplay(responseBody);
+  const nextRawResponse = aborted
+    ? keepRuntimeDetails ? request.rawResponse : null
+    : responseBody == null || !keepRuntimeDetails ? null : responseBody;
 
   return {
     ...request,
     status: aborted ? "canceled" : "error",
     error: aborted ? requestCanceledMessage : error.message,
-    response: aborted ? request.response : responseBody == null ? null : sanitizeResponseForDisplay(responseBody),
-    rawResponse: aborted ? request.rawResponse : responseBody == null ? null : responseBody,
+    response: nextResponse,
+    rawResponse: nextRawResponse,
+    hasCachedDetails: request.hasCachedDetails || responseBody != null,
     endedAt,
     editImages: [],
   };

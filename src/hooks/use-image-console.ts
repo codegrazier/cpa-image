@@ -342,7 +342,7 @@ function stripRequestRuntimeDetails(request: ImageRequestRecord): ImageRequestRe
     return request;
   }
 
-  if (!request.images.length && request.response == null && !request.editImages?.length) {
+  if (!request.images.length && request.response == null && request.rawResponse == null && !request.editImages?.length) {
     return request;
   }
 
@@ -350,6 +350,7 @@ function stripRequestRuntimeDetails(request: ImageRequestRecord): ImageRequestRe
     ...request,
     images: [],
     response: null,
+    rawResponse: null,
     editImages: [],
   };
 }
@@ -1041,6 +1042,19 @@ export function useImageConsole() {
         if (failedRequest && await isCrossOriginFetchFailure(failedRequest.endpoint, typedError)) {
           toast.error(copy.runtime.crossOriginRequestFailed);
         }
+        const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
+        if (failedRequest && typedError.responseBody != null) {
+          void saveRequestDetails(
+            [
+              {
+                ...failedRequest,
+                response: sanitizeResponseForDisplay(typedError.responseBody),
+                rawResponse: typedError.responseBody,
+              },
+            ],
+            { prune: false },
+          );
+        }
         commitRecords((records) =>
           records.map((item) =>
             item.id === requestId
@@ -1048,6 +1062,7 @@ export function useImageConsole() {
                   error: typedError,
                   requestCanceledMessage: copy.runtime.requestCanceled,
                   endedAt: performance.now(),
+                  keepRuntimeDetails: shouldKeepRuntimeDetails,
                 })
               : item,
           ),
@@ -1678,10 +1693,12 @@ export function useImageConsole() {
     setSelectedRequestDetailLoadingId(null);
     thumbnailBackfillRef.current.clear();
     retainedRequestDetailIdsRef.current = [];
+    const removedIds = requestRecordsRef.current.map((request) => request.id);
     revokeObjectUrls(collectObjectUrls(requestRecordsRef.current));
     requestRecordsRef.current = [];
     setRequestRecords([]);
     setSelectedRequestId(null);
+    void deleteRequestDetails(removedIds, { retainTombstones: true });
     void clearCachedRequests();
     setStatusMessageSource({ type: "requests-cleared", kind: "all" });
   }, [clearQueueTimer, copy]);

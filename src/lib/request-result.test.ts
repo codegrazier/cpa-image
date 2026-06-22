@@ -129,6 +129,7 @@ describe("request result", () => {
       status: "error",
       error: "没有图片输出",
       response: null,
+      rawResponse: null,
       images: [],
       imageCount: 0,
       imageSizeBytes: 5,
@@ -154,6 +155,28 @@ describe("request result", () => {
       error: "Request failed",
       response: { error: { message: "bad" }, image: "[image data omitted, 300 chars]" },
       rawResponse: error.responseBody,
+      endedAt: 20,
+      editImages: [],
+    });
+  });
+
+  test("omits failed request response details when runtime details are not retained", () => {
+    const error = new Error("Request failed") as Error & { responseBody?: unknown };
+    error.responseBody = { error: { message: "bad" }, image: "x".repeat(300) };
+
+    const result = applyFailedRequestResult(requestRecordFixture(), {
+      error,
+      requestCanceledMessage: "请求已取消",
+      endedAt: 20,
+      keepRuntimeDetails: false,
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      error: "Request failed",
+      response: null,
+      rawResponse: null,
+      hasCachedDetails: true,
       endedAt: 20,
       editImages: [],
     });
