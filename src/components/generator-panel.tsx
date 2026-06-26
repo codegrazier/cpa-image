@@ -376,14 +376,10 @@ export function GeneratorPanel({
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                onClick={() => window.open("https://github.com/codegrazier/cpa-image", "_blank", "noopener,noreferrer")}
-                aria-label="GitHub"
-              >
-                <GithubIcon data-icon="inline-start" />
+              <Button asChild variant="outline" size="icon-sm">
+                <a href="https://github.com/codegrazier/cpa-image" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+                  <GithubIcon data-icon="inline-start" />
+                </a>
               </Button>
             </TooltipTrigger>
             <TooltipContent>GitHub</TooltipContent>
