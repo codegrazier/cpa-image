@@ -35,8 +35,6 @@ npm start
 - Chat Completions：`/v1/chat/completions`
 - 连接测试：`/v1/models`
 
-API Key 取决于你的兼容服务配置。若使用 CLIProxyAPI，这里通常填写代理配置里的 `api-keys`，不是 OpenAI 官方 API Key。
-
 ## 本地数据
 
 CPA Image 会把设置、Prompt 历史、请求摘要和请求详情保存在当前浏览器本地，用于刷新后恢复工作区。API Key 只有在勾选“在本浏览器记住 API Key”后才会持久化保存。
