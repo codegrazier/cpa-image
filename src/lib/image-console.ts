@@ -1467,6 +1467,22 @@ export function extractImages(response: unknown, fallbackFormat = "png") {
         continue;
       }
 
+      if (urlKeys.has(key) && text.startsWith("data:image/")) {
+        if (!preferredBase64Image) {
+          preferredBase64Image = {
+            key,
+            image: {
+              src: text,
+              kind: "base64",
+              path: `${path}.${key}`,
+              mimeType: dataUrlMimeType(text, outputFormat),
+            },
+          };
+        }
+        hasDirectBase64 = true;
+        continue;
+      }
+
       if (!preferredUrlImage && urlKeys.has(key) && (text.startsWith("http://") || text.startsWith("https://"))) {
         preferredUrlImage = {
           key,

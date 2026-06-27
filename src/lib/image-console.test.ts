@@ -882,6 +882,40 @@ describe("image console logic", () => {
     expect(images[0]?.path).toBe("$.choices[0].message.content.markdownImage[0]");
   });
 
+  test("extracts data URI images from message.images array in completions response", () => {
+    const response = {
+      id: "resp_test",
+      object: "chat.completion",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: null,
+            images: [
+              {
+                type: "image_url",
+                image_url: {
+                  url: "data:image/png;base64," + PNG_BASE64,
+                },
+                index: 0,
+              },
+            ],
+          },
+          finish_reason: "stop",
+        },
+      ],
+    };
+
+    const images = extractImages(response, "png");
+
+    expect(images).toHaveLength(1);
+    expect(images[0].kind).toBe("base64");
+    expect(images[0].src.startsWith("data:image/png;base64,")).toBe(true);
+    expect(images[0].path).toBe("$.choices[0].message.images[0].image_url.url");
+    expect(images[0].mimeType).toBe("image/png");
+  });
+
   test("prepares base64 images as blobs for cache and object URLs for runtime", () => {
     const [image] = extractImages({ data: [{ b64_json: PNG_BASE64 }] }, "png");
     const blob = imageBlobFromDataUrl(image.src, "png");
