@@ -8,7 +8,7 @@ export function SeoContent() {
       <h1 className="sr-only">{c.h1}</h1>
       <section aria-label={c.productSectionLabel} className="sr-only">
         <h2>{c.productHeading}</h2>
-        <p>{c.productProse}</p>
+        <p className="whitespace-pre-line">{c.productProse}</p>
       </section>
       <footer className="sr-only">
         <p>

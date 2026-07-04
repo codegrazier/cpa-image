@@ -9,17 +9,17 @@ An OpenAI-compatible image generation and editing console that lives in your bro
 配置 OpenAI 兼容 base URL 与 API key 即可开始，无需后端。支持通过可选跨域请求代理绕过浏览器 CORS 限制。
 
 ## Endpoints
-- /v1/images/generations：文字生成图片，支持 1024x1024 / 1792x1024 / 1024x1792 / 2K / 4K 等尺寸
-- /v1/images/edits：基于现有图片做编辑（generations 模型 edit 模式）
-- /v1/responses：通过 responses 接口出图（gpt-image 工具调用）
+- /v1/images/generations：文字生成图片，尺寸按横纵分组以像素精确指定：auto / 1024x1024 / 2048x2048 / 1440x1088 / 1536x1024 / 2048x1152 / 2048x1536 / 3840x2160 及其竖版，UI 对接近 2048 / 3840 的档位标注 2K / 4K
+- /v1/images/edits：基于现有本地图片做编辑（gpt-image edit 模式）
+- /v1/responses：通过 responses 接口出图（image_generation 工具调用）
 - /v1/chat/completions：通过 chat completions 接口出图（图像生成工具调用）
 
 ## Settings
 - API URL / API Key：OpenAI 兼容端点与认证
 - 跨域请求代理（可选）：API 请求经代理服务转发以绕过浏览器 CORS，需信任代理
 - 并发与间隔：requestConcurrency、requestIntervalSeconds 控制批量速率
-- 输出尺寸（size）/ 质量（quality）/ 数量（n）/ 输出格式（output_format）
-- 原始 Prompt 校验：strictPrompt 保留首尾模板，仅编辑中间正文
+- 面板可见选项：输出尺寸（size）/ 质量（quality：auto/low/medium/high）/ 数量（n，≤100）/ strictPrompt 开关
+- 原始 Prompt 校验：strictPrompt 在用户 prompt 外层首尾包夹锁定指令（HEADER + 模板 + FOOTER），防止模型自改关键词；锁定模板可自定义编辑、可一键开关
 
 ## Privacy
 API Key 仅存当前浏览器，本地缓存与 Prompt 不上传第三方。
@@ -30,3 +30,46 @@ API Key 仅存当前浏览器，本地缓存与 Prompt 不上传第三方。
 - [GitHub](https://github.com/codegrazier/cpa-image)
 - [License (MIT)](https://github.com/codegrazier/cpa-image/blob/main/LICENSE)
 - [Sitemap](https://cpa-image.site/sitemap.xml)
+
+## Usage examples
+以 cURL 调用 OpenAI 兼容端点（CPA Image 即在浏览器内对这类端点发起同类请求）：
+
+# 文字生成一张 2K 图
+curl https://api.example.com/v1/images/generations \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-image-1","prompt":"a lighthouse at dawn, subtle fog","size":"2K","n":1,"output_format":"png"}'
+
+# 基于现有本地图片做编辑
+curl https://api.example.com/v1/images/edits \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -F model="gpt-image-1" \
+  -F image="@./input.png" \
+  -F prompt="replace the sky with aurora" \
+  -F size="1024"
+
+在 CPA Image 控制台内的配置步骤：
+1. 打开 https://cpa-image.site/zh-CN/ ，在设置面板填入 OpenAI 兼容 API URL 与 API Key；
+2. 选择出图端点（/v1/images/generations、/v1/images/edits、/v1/responses 或 /v1/chat/completions）；
+3. 选择输出尺寸（auto 或按横纵分组的像素档位：1024x1024、2048x2048、最长边 3840x2160 等，UI 标注 2K / 4K）、质量（auto / low / medium / high）与数量（n，≤100）；
+4. （可选）开启 strictPrompt 锁定外层模板、设定并发与间隔、跨域请求代理；
+5. 提交请求，成片与请求记录落地浏览器本地缓存，关闭浏览器即清。
+
+## FAQ
+Q: CPA Image 是否在服务器存储我的图像或 Prompt？
+A: 否。请求与缓存全部保留在浏览器本地（IndexedDB / localStorage），API Key、Prompt 与成片均不离开设备，关闭浏览器即清。
+
+Q: 支持哪些 OpenAI 兼容端点？
+A: /v1/images/generations 文字生图、/v1/images/edits 本地图编辑、/v1/responses 工具调用出图、/v1/chat/completions 图像生成工具调用；切换端点无需更换客户端。
+
+Q: 是否支持批量与节流？
+A: 是。一次最多提交 100 张，拆为独立任务；并发数与请求间隔由你设定，单张失败不影响整批，按时间批次自动编号；状态机覆盖 queued / running / done / error / canceled。
+
+Q: 2K / 4K 高清是如何实现的，是否需要后处理放大？
+A: 直出。尺寸按横纵分组以像素精确指定（auto / 1024x1024 / 2048x2048 / 最长边 3840x2160 等），UI 对接近 2048 / 3840 的档位标注 2K / 4K 便于辨识，由端点原生返回，无需后处理或额外放大；质量分 auto / low / medium / high 可选。
+
+Q: 请求失败时如何识别原因？
+A: 控制台区分错误类型：401（API Key 未被接受）、503 + auth_unavailable（代理无可用上游认证）、2xx 响应体含 error 字段（透传上游错误信息），并保留失败请求详情便于重试或修正。
+
+Q: 历史成片能否作为下次编辑的输入？
+A: 可以。历史可一键回填做编辑基底，跨请求链式迭代无需重新下载上传。strictPrompt 可在用户 prompt 外层首尾包夹锁定指令以防模型自改关键词，可一键开关、锁定模板可自定义编辑。
