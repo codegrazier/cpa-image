@@ -14,7 +14,7 @@ CPA Image 是一个本地优先的 OpenAI 兼容图像生成与编辑控制台�
 
 ## 开发
 
-建议使用 Node.js `20.19.0` 或更高版本；如果使用 nvm，可以直接运行 `nvm use` 读取 `.nvmrc` 中的推荐版本。
+建议使用 Node.js `24` 或更高版本；如果使用 nvm，可以直接运行 `nvm use` 读取 `.nvmrc` 中的推荐版本。Node < 24 的 undici `Blob` 与 jsdom 在测试环境下不互通，会导致 `npm test` 中 URL 图片转 blob 的用例失败。
 
 项目源码以 MIT 许可证开源，但不作为 npm 包发布；`package.json` 中的 `private: true` 用于避免误发布。
 

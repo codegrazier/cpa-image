@@ -7,7 +7,7 @@
   "type": "module",
   "packageManager": "npm@11.16.0",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24"
   },
   "scripts": {
     "start": "vite --host 127.0.0.1 --port 5174",
