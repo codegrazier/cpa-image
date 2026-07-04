@@ -14,6 +14,7 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empt
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   imageDownloadName,
+  payloadSize,
   requestStatusDisplayLabel,
   revisedPromptForResponse,
   reusablePromptForRequest,
@@ -170,6 +171,8 @@ function Gallery({
         const image = (images[index] || null) as GeneratedImage | null;
         const imageKey = `${requestId || "empty"}-${index}`;
         const rotation = rotationByImageKey[imageKey] || 0;
+        const altSize = payloadSize(request?.payload);
+        const altMode = request?.method || "";
         return (
           <article
             key={imageKey}
@@ -216,7 +219,7 @@ function Gallery({
                 </div>
                 <img
                   src={image.src}
-                  alt={`Generated image ${index + 1}`}
+                  alt={copy.generatedImageAlt(index, { size: altSize, mode: altMode })}
                   loading="lazy"
                   className="block max-h-full max-w-full object-contain transition-transform duration-200"
                   style={{ transform: `rotate(${rotation}deg)` }}
@@ -266,7 +269,12 @@ export function ResultPanel({
   const revisedPromptTooltip = revisedPromptForResponse(selectedRequest?.response) || (language === "en" ? "No revised_prompt found" : "未找到 revised_prompt");
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-card shadow-none" aria-live="polite">
+    <section
+      className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-card shadow-none"
+      aria-live="polite"
+      aria-label={copy.resultSectionLabel}
+    >
+      <h2 className="sr-only">{copy.resultSectionLabel}</h2>
       <div className="flex min-h-14 items-center justify-between gap-3 border-b border-border px-4">
         <strong className="shrink-0 text-sm">{statusMessage.state}</strong>
         <span className="min-w-0 truncate text-right text-xs font-medium text-muted-foreground">{statusMessage.detail}</span>

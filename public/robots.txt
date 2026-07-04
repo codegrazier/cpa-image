@@ -1,4 +1,23 @@
 User-agent: *
 Allow: /
 
+# AI/LLM crawlers — 显式邀请，确保全量抓取
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
 Sitemap: https://cpa-image.site/sitemap.xml

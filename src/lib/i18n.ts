@@ -39,14 +39,14 @@ const SEO_COPY: Record<
 > = {
   zh: {
     title: "CPA Image | OpenAI 图像生成与编辑控制台",
-    description: "CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持 2K/4K 高清尺寸、批量请求、并发控制和本地缓存安全策略。",
+    description: "把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。",
     ogLocale: "zh_CN",
     ogLocaleAlternate: "en_US",
     imageAlt: "CPA Image OpenAI 图像生成与编辑控制台",
   },
   en: {
     title: "CPA Image | OpenAI Image Generation and Editing Console",
-    description: "CPA Image is an OpenAI-compatible image generation and editing console with 2K/4K output, batch requests, concurrency control, and a local caching safety strategy.",
+    description: "An OpenAI-compatible image generation and editing console that lives in your browser: four output endpoints in one panel, 2K/4K HD direct output, batch up to a hundred at your own pace, with keys and artifacts kept local and never uploaded to third parties.",
     ogLocale: "en_US",
     ogLocaleAlternate: "zh_CN",
     imageAlt: "CPA Image OpenAI image generation and editing console",
@@ -73,7 +73,7 @@ export function getSeoMetadata(language: Language) {
     alternateUrls: {
       zh: `${SITE_ORIGIN}/zh-CN/`,
       en: `${SITE_ORIGIN}/en-US/`,
-      xDefault: SITE_ORIGIN,
+      xDefault: `${SITE_ORIGIN}/`,
     },
     ogLocale: SEO_COPY[language].ogLocale,
     ogLocaleAlternate: SEO_COPY[language].ogLocaleAlternate,
@@ -378,6 +378,20 @@ type Copy = {
     connectionReset: string;
     connectionResetDetail: string;
   };
+  seoContent: {
+    h1: string;
+    productSectionLabel: string;
+    productHeading: string;
+    productProse: string;
+    footerCopyright: string;
+    licenseUrl: string;
+    githubUrl: string;
+    footerPrivacy: string;
+    noscriptProse: string;
+  };
+  generatedImageAlt: (index: number, ctx: { size?: string; mode?: string }) => string;
+  resultSectionLabel: string;
+  skipToContent: string;
 };
 
 function englishRequestControlSummary(settings: Pick<AppSettings, "requestConcurrency" | "requestIntervalSeconds">) {
@@ -607,6 +621,31 @@ const COPY: Record<Language, Copy> = {
       connectionReset: "配置",
       connectionResetDetail: "默认 URL 已恢复。",
     },
+    seoContent: {
+      h1: "CPA Image 图像生成与编辑控制台",
+      productSectionLabel: "产品说明",
+      productHeading: "关于 CPA Image",
+      productProse:
+        "CPA Image 为不想把图像工作流交给第三方 SaaS 的人而生。它是一个本地优先的 OpenAI 兼容图像控制台——请求与缓存全在浏览器内，API key、prompt 与成片从不离开你的设备。一个面板覆盖 OpenAI 兼容生态的全部出图路径：/v1/images/generations 文字生图、/v1/images/edits 本地图编辑、/v1/responses 与 /v1/chat/completions 工具调用出图，按需切换不动客户端。auto 到 2K/4K 多档尺寸原生直出；一次最多跑 100 张，并发数与请求间隔自定节流，单张失败不影响整批，按时间批次自动编号。strictPrompt 外层锁定语义防模型自改关键词；历史成片可一键回填做编辑基底，跨请求链式迭代。",
+      footerCopyright: "© 2026 CPA Image contributors",
+      licenseUrl: "https://github.com/codegrazier/cpa-image/blob/main/LICENSE",
+      githubUrl: "https://github.com/codegrazier/cpa-image",
+      footerPrivacy: "本地数据不上传第三方：API Key 与本地缓存仅存于当前浏览器，关闭即清。",
+      noscriptProse:
+        "CPA Image 是一个本地优先的 OpenAI 兼容图像生成与编辑控制台，四类出图端点同面板、2K/4K 高清直出、百张批量与可调并发。本控制台依赖 JavaScript 与浏览器本地存储运行，请在启用 JavaScript 的现代浏览器中访问。",
+    },
+    generatedImageAlt: (index, ctx) => {
+      const base = `Generated image ${index + 1}`;
+      const extras: string[] = [];
+      const size = ctx?.size;
+      const mode = ctx?.mode;
+      if (size && size !== "auto") extras.push(size);
+      if (mode) extras.push(mode);
+      if (!extras.length) return base;
+      return `${base}（${extras.join(" · ")}）`;
+    },
+    resultSectionLabel: "生成结果",
+    skipToContent: "跳到主内容",
   },
   en: {
     appName: "CPA Image",
@@ -830,6 +869,31 @@ const COPY: Record<Language, Copy> = {
       connectionReset: "Settings",
       connectionResetDetail: "Default URL restored.",
     },
+    seoContent: {
+      h1: "CPA Image – Image Generation and Editing Console",
+      productSectionLabel: "Product overview",
+      productHeading: "About CPA Image",
+      productProse:
+        "CPA Image is built for people who'd rather not hand their image workflow to a third-party SaaS. It's a local-first, OpenAI-compatible image console — requests and caches stay in the browser, and your API key, prompts, and artifacts never leave your device. One panel covers every output path in the OpenAI-compatible ecosystem: text-to-image via /v1/images/generations, local image edits via /v1/images/edits, and tool-call image output via /v1/responses and /v1/chat/completions — switch on demand without changing clients. Native direct output from auto up to 2K/4K; run up to 100 at once with self-throttled concurrency and request intervals, where a single failure doesn't sink the batch and runs are auto-numbered by time. strictPrompt locks the outer semantics to keep the model from rewriting your keywords; past artifacts can be reused as edit baselines for chained iteration across requests.",
+      footerCopyright: "© 2026 CPA Image contributors",
+      licenseUrl: "https://github.com/codegrazier/cpa-image/blob/main/LICENSE",
+      githubUrl: "https://github.com/codegrazier/cpa-image",
+      footerPrivacy: "Local data is never uploaded to third parties: API key and cache live in this browser only.",
+      noscriptProse:
+        "CPA Image is a local-first, OpenAI-compatible image generation and editing console with four output endpoints in one panel, 2K/4K HD direct output, and batch up to a hundred with adjustable concurrency. This console relies on JavaScript and browser local storage; please enable JavaScript in a modern browser to access it.",
+    },
+    generatedImageAlt: (index, ctx) => {
+      const base = `Generated image ${index + 1}`;
+      const extras: string[] = [];
+      const size = ctx?.size;
+      const mode = ctx?.mode;
+      if (size && size !== "auto") extras.push(size);
+      if (mode) extras.push(mode);
+      if (!extras.length) return base;
+      return `${base} · ${extras.join(" · ")}`;
+    },
+    resultSectionLabel: "Results",
+    skipToContent: "Skip to main content",
   },
 };
 

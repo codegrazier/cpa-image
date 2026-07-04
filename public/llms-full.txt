@@ -1,0 +1,32 @@
+# CPA Image — Full Reference
+
+> 把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。
+
+An OpenAI-compatible image generation and editing console that lives in your browser and runs entirely locally — keys, prompts, and artifacts never leave your device.
+
+## Overview
+本控制台不在服务器存储任何图片或 Prompt：所有图像请求与缓存均保留在浏览器本地（IndexedDB / localStorage），关闭浏览器即清。
+配置 OpenAI 兼容 base URL 与 API key 即可开始，无需后端。支持通过可选跨域请求代理绕过浏览器 CORS 限制。
+
+## Endpoints
+- /v1/images/generations：文字生成图片，支持 1024x1024 / 1792x1024 / 1024x1792 / 2K / 4K 等尺寸
+- /v1/images/edits：基于现有图片做编辑（generations 模型 edit 模式）
+- /v1/responses：通过 responses 接口出图（gpt-image 工具调用）
+- /v1/chat/completions：通过 chat completions 接口出图（图像生成工具调用）
+
+## Settings
+- API URL / API Key：OpenAI 兼容端点与认证
+- 跨域请求代理（可选）：API 请求经代理服务转发以绕过浏览器 CORS，需信任代理
+- 并发与间隔：requestConcurrency、requestIntervalSeconds 控制批量速率
+- 输出尺寸（size）/ 质量（quality）/ 数量（n）/ 输出格式（output_format）
+- 原始 Prompt 校验：strictPrompt 保留首尾模板，仅编辑中间正文
+
+## Privacy
+API Key 仅存当前浏览器，本地缓存与 Prompt 不上传第三方。
+
+## Links
+- [首页(中文)](https://cpa-image.site/zh-CN/)
+- [Home (English)](https://cpa-image.site/en-US/)
+- [GitHub](https://github.com/codegrazier/cpa-image)
+- [License (MIT)](https://github.com/codegrazier/cpa-image/blob/main/LICENSE)
+- [Sitemap](https://cpa-image.site/sitemap.xml)

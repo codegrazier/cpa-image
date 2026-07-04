@@ -177,7 +177,11 @@ function ExportZipProgressDialog({
           <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
           </div>
-          <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+          <div
+            className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground"
+            aria-live="polite"
+            aria-busy={open}
+          >
             <span>{copy.exportZip.progressStatus(progress.current, progress.total)}</span>
             <span className="tabular-nums">{percent}%</span>
           </div>
@@ -264,7 +268,7 @@ export default function App() {
 
   return (
     <>
-      <main className="grid min-h-dvh min-w-0 grid-cols-1 gap-4 bg-muted/30 p-4 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_400px] lg:overflow-hidden">
+      <main id="main" className="grid min-h-dvh min-w-0 grid-cols-1 gap-4 bg-muted/30 p-4 lg:h-dvh lg:grid-cols-[380px_minmax(0,1fr)_400px] lg:overflow-hidden">
         <RequestListPanel
           filteredRequests={consoleState.filteredRequests}
           selectedRequestId={consoleState.selectedRequestId}

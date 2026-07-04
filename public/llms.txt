@@ -1,0 +1,16 @@
+# CPA Image
+
+> 把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。
+
+An OpenAI-compatible image generation and editing console that lives in your browser, with four output endpoints in one panel.
+
+## Features
+- 文字生成图片、本地图片编辑、历史结果复用
+- /v1/images/generations · /v1/images/edits · /v1/responses · /v1/chat/completions
+- 批量、并发、请求间隔控制；浏览器本地存储，无后端
+
+## Links
+- [首页(中文)](https://cpa-image.site/zh-CN/)
+- [Home (English)](https://cpa-image.site/en-US/)
+- [GitHub](https://github.com/codegrazier/cpa-image)
+- [Sitemap](https://cpa-image.site/sitemap.xml)

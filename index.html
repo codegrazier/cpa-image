@@ -1,17 +1,24 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" dir="ltr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CPA Image | OpenAI 图像生成与编辑控制台 / Image Generation and Editing Console</title>
     <meta
       name="description"
-      content="CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持 2K/4K 高清尺寸、批量请求、并发控制和本地缓存安全策略。"
+      content="把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。"
     />
     <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
     <meta name="application-name" content="CPA Image" />
     <meta name="apple-mobile-web-app-title" content="CPA Image" />
     <meta name="theme-color" content="#111111" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/svg+xml" />
+    <meta property="og:image:secure_url" content="https://cpa-image.site/og-image.svg" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111111" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="canonical" href="https://cpa-image.site/zh-CN/" />
     <link rel="alternate" hreflang="zh-CN" href="https://cpa-image.site/zh-CN/" />
     <link rel="alternate" hreflang="en-US" href="https://cpa-image.site/en-US/" />
@@ -24,7 +31,7 @@
     <meta property="og:title" content="CPA Image | OpenAI 图像生成与编辑控制台 / Image Generation and Editing Console" />
     <meta
       property="og:description"
-      content="CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持 2K/4K 高清尺寸、批量请求、并发控制和本地缓存安全策略。"
+      content="把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。"
     />
     <meta property="og:url" content="https://cpa-image.site/zh-CN/" />
     <meta property="og:image" content="https://cpa-image.site/og-image.svg" />
@@ -33,27 +40,54 @@
     <meta name="twitter:title" content="CPA Image | OpenAI 图像生成与编辑控制台 / Image Generation and Editing Console" />
     <meta
       name="twitter:description"
-      content="CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持 2K/4K 高清尺寸、批量请求、并发控制和本地缓存安全策略。"
+      content="把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。"
     />
     <meta name="twitter:image" content="https://cpa-image.site/og-image.svg" />
     <meta name="twitter:image:alt" content="CPA Image OpenAI 图像生成与编辑控制台" />
     <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "CPA Image",
-        "alternateName": "CPA-Image",
-        "applicationCategory": "GraphicsApplication",
-        "operatingSystem": "Web",
-        "url": "https://cpa-image.site/zh-CN/",
-        "description": "CPA Image 是一个 OpenAI 兼容的图像生成与编辑控制台，支持 2K/4K 高清尺寸、批量请求、并发控制和本地缓存安全策略。",
-        "inLanguage": ["zh-CN", "en-US"],
-        "isAccessibleForFree": true
-      }
+      [
+        {
+          "@context": "https://schema.org",
+          "@type": "WebApplication",
+          "name": "CPA Image",
+          "alternateName": "CPA-Image",
+          "applicationCategory": "GraphicsApplication",
+          "operatingSystem": "Cross-platform",
+          "url": "https://cpa-image.site/zh-CN/",
+          "description": "把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。",
+          "inLanguage": ["zh-CN", "en-US"],
+          "isAccessibleForFree": true,
+          "image": "https://cpa-image.site/og-image.svg",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock"
+          },
+          "author": { "@type": "Organization", "name": "codegrazier", "url": "https://github.com/codegrazier" },
+          "publisher": {
+            "@type": "Organization",
+            "name": "codegrazier",
+            "url": "https://github.com/codegrazier",
+            "logo": { "@type": "ImageObject", "url": "https://cpa-image.site/favicon.svg" }
+          },
+          "datePublished": "JS_REQUIRED_PLACEHOLDER",
+          "dateModified": "JS_REQUIRED_PLACEHOLDER"
+        },
+        {
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            { "@type": "ListItem", "position": 1, "name": "CPA Image", "item": "https://cpa-image.site/" },
+            { "@type": "ListItem", "position": 2, "name": "中文", "item": "https://cpa-image.site/zh-CN/" }
+          ]
+        }
+      ]
     </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript data-i18n="seo-noscript-fallback">JS_REQUIRED_PLACEHOLDER</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
