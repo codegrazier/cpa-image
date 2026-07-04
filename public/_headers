@@ -1,0 +1,38 @@
+# Cloudflare Pages 安全头与缓存策略
+# 拖拽 dist 部署时,Pages 原生读取 dist 根下的 _headers 文件。
+# 语法:路径模式(空格缩进)下跟一组 头名: 值。
+# 多条 /* 规则按从特殊到一般匹配,_headers 不支持优先级写法,后者覆盖前者。
+
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; img-src 'self' data: blob: https:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https:; font-src 'self' data:; object-src 'none'; worker-src 'self'; upgrade-insecure-requests
+
+# HTML 不缓存(prerender 注入 dateModified 需每次新)
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 指纹化资源长缓存(vite build 产物带 hash 文件名,可一年 immutable)
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# SVG 静态资源(og-image/favicon 带 ?v= 改版时升版本号即可)
+/og-image.svg
+  Cache-Control: public, max-age=86400
+/favicon.svg
+  Cache-Control: public, max-age=86400
+
+# 文本型 SEO 资源(robots/sitemap/llms 短缓存保留可更新性)
+/robots.txt
+  Cache-Control: public, max-age=3600
+/sitemap.xml
+  Cache-Control: public, max-age=3600
+/llms.txt
+  Cache-Control: public, max-age=3600
+/llms-full.txt
+  Cache-Control: public, max-age=3600
+/manifest.webmanifest
+  Cache-Control: public, max-age=3600

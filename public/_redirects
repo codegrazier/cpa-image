@@ -1,0 +1,8 @@
+# Cloudflare Pages 重定向规则
+# 语法:<source 路径> <destination> <status 码>
+# 一行一条,按从上到下匹配。
+
+# 根路径 x-default 301 永久重定向到中文默认站
+# 消除"根 / 与 /zh-CN/ 两 URL 服同内容"的 duplicate-content 信号
+# (此前根 canonical 软指 /zh-CN/,301 直接合并索引目标)
+/  /zh-CN/  301
