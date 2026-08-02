@@ -1,6 +1,8 @@
 import {
   CheckIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ImageIcon,
   ImagePlusIcon,
   LanguagesIcon,
@@ -16,11 +18,12 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useRef, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import { Field, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -297,8 +300,35 @@ export function GeneratorPanel({
   const { copy, toggleLanguage } = useI18n();
   const editImagesInputRef = useRef<HTMLInputElement>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [previewEditImageIndex, setPreviewEditImageIndex] = useState<number | null>(null);
   const generationButtonFeedbackClassName = "transition-all duration-100 active:translate-y-px active:scale-[0.99] active:brightness-95";
   const editImageSelectionFull = editImages.length >= MAX_EDIT_INPUT_IMAGES;
+  const previewEditImage = previewEditImageIndex !== null ? editImages[previewEditImageIndex] ?? null : null;
+
+  useEffect(() => {
+    if (previewEditImageIndex !== null && !editImages[previewEditImageIndex]) {
+      setPreviewEditImageIndex(null);
+    }
+  }, [editImages, previewEditImageIndex]);
+
+  useEffect(() => {
+    if (previewEditImageIndex === null) return;
+    function handlePreviewKeyDown(event: KeyboardEvent) {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setPreviewEditImageIndex((current) =>
+          current === null ? current : (current - 1 + editImages.length) % editImages.length,
+        );
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setPreviewEditImageIndex((current) =>
+          current === null ? current : (current + 1) % editImages.length,
+        );
+      }
+    }
+    window.addEventListener("keydown", handlePreviewKeyDown);
+    return () => window.removeEventListener("keydown", handlePreviewKeyDown);
+  }, [editImages.length, previewEditImageIndex]);
 
   useEffect(() => {
     if (promptFocusSignal <= 0) return;
@@ -320,9 +350,8 @@ export function GeneratorPanel({
     enqueueGeneration("images");
   }
 
-  function handleEditImagesChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.currentTarget.files || []);
-    if (!files.length) return;
+  function addEditImageFiles(files: File[]) {
+    if (!files.length) return 0;
 
     const remainingSlots = Math.max(0, MAX_EDIT_INPUT_IMAGES - editImages.length);
     if (files.length > remainingSlots) {
@@ -339,7 +368,30 @@ export function GeneratorPanel({
     if (nextImages.length) {
       setEditImages((current) => [...current, ...nextImages].slice(0, MAX_EDIT_INPUT_IMAGES));
     }
+    return nextImages.length;
+  }
+
+  function handleEditImagesChange(event: ChangeEvent<HTMLInputElement>) {
+    addEditImageFiles(Array.from(event.currentTarget.files || []));
     event.currentTarget.value = "";
+  }
+
+  function handlePromptPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (mode !== "edit") return;
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+
+    if (!imageFiles.length) return;
+    event.preventDefault();
+    addEditImageFiles(imageFiles);
   }
 
   function handleModeChange(value: string) {
@@ -398,7 +450,12 @@ export function GeneratorPanel({
 
       <FieldGroup>
         <Field>
-          <FieldLabel htmlFor="prompt">{copy.generator.promptLabel}</FieldLabel>
+          <div className="flex w-full items-center justify-between gap-2">
+            <FieldLabel htmlFor="prompt">{copy.generator.promptLabel}</FieldLabel>
+            {mode === "edit" ? (
+              <span className="text-xs text-muted-foreground">{copy.generator.pasteImageHint}</span>
+            ) : null}
+          </div>
           <Textarea
             id="prompt"
             name="prompt"
@@ -407,6 +464,7 @@ export function GeneratorPanel({
             maxLength={32000}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
+            onPaste={handlePromptPaste}
             placeholder={mode === "edit" ? copy.generator.editPromptPlaceholder : copy.generator.promptPlaceholder}
             required
             className="h-[114px] resize-none overflow-y-auto md:h-[98px]"
@@ -499,12 +557,19 @@ export function GeneratorPanel({
                       key={`${image.sourceKey || image.name}-${index}`}
                       className="relative aspect-square min-w-0 overflow-hidden rounded-md border border-border bg-muted/30"
                     >
-                      <img
-                        src={image.src}
-                        alt=""
-                        aria-hidden="true"
-                        className="block h-full w-full object-cover object-center"
-                      />
+                      <button
+                        type="button"
+                        className="block h-full w-full cursor-zoom-in"
+                        aria-label={`${copy.generator.previewInputImage} ${index + 1}`}
+                        onClick={() => setPreviewEditImageIndex(index)}
+                      >
+                        <img
+                          src={image.src}
+                          alt=""
+                          aria-hidden="true"
+                          className="block h-full w-full object-cover object-center"
+                        />
+                      </button>
                       <Button
                         type="button"
                         variant="secondary"
@@ -627,6 +692,61 @@ export function GeneratorPanel({
           </>
         )}
       </div>
+      <DialogPrimitive.Root open={previewEditImageIndex !== null} onOpenChange={(open) => { if (!open) setPreviewEditImageIndex(null); }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+          <DialogPrimitive.Content
+            aria-describedby={undefined}
+            onClick={() => setPreviewEditImageIndex(null)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                event.stopPropagation();
+              }
+            }}
+            className="fixed inset-0 z-50 flex items-center justify-center outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 duration-200"
+          >
+            <DialogPrimitive.Title className="sr-only">{copy.generator.previewInputImage}</DialogPrimitive.Title>
+            {previewEditImage ? (
+              <img
+                src={previewEditImage.src}
+                alt={copy.generator.previewInputImage}
+                className="block max-h-[85vh] w-auto max-w-[calc(100vw-7rem)] object-contain"
+                onClick={(event) => event.stopPropagation()}
+              />
+            ) : null}
+            {editImages.length > 1 ? (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                  aria-label={copy.generator.previewPreviousImage}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPreviewEditImageIndex((current) => (current === null ? current : (current - 1 + editImages.length) % editImages.length));
+                  }}
+                >
+                  <ChevronLeftIcon data-icon="inline-start" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                  aria-label={copy.generator.previewNextImage}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPreviewEditImageIndex((current) => (current === null ? current : (current + 1) % editImages.length));
+                  }}
+                >
+                  <ChevronRightIcon data-icon="inline-start" />
+                </Button>
+              </>
+            ) : null}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </form>
   );
 }

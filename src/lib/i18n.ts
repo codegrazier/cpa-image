@@ -309,6 +309,10 @@ type Copy = {
     responses: string;
     completions: string;
     edits: string;
+    pasteImageHint: string;
+    previewInputImage: string;
+    previewPreviousImage: string;
+    previewNextImage: string;
   };
   settings: {
     title: string;
@@ -535,6 +539,10 @@ const COPY: Record<Language, Copy> = {
       responses: "responses",
       completions: "completions",
       edits: "edits",
+      pasteImageHint: "在 Prompt 输入框中粘贴可直接添加图片",
+      previewInputImage: "预览输入图片",
+      previewPreviousImage: "上一张",
+      previewNextImage: "下一张",
     },
     settings: {
       title: "连接",
@@ -783,6 +791,10 @@ const COPY: Record<Language, Copy> = {
       responses: "responses",
       completions: "completions",
       edits: "edits",
+      pasteImageHint: "Paste an image into the Prompt box to add it directly",
+      previewInputImage: "Preview input image",
+      previewPreviousImage: "Previous image",
+      previewNextImage: "Next image",
     },
     settings: {
       title: "Connection",

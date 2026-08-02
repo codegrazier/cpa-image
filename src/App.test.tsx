@@ -669,6 +669,141 @@ describe("App", () => {
     expect(screen.getByLabelText("选择本地图片")).not.toBeDisabled();
   });
 
+  test("opens a large preview dialog when clicking an edit input thumbnail", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+
+    const file = new File(["image-0"], "input-1.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("选择本地图片"), file);
+    expect(screen.getAllByRole("button", { name: /删除输入图片 \d+/ })).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "预览输入图片 1" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("img")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("blocks background arrow-key handlers while the preview dialog is open", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const keys: string[] = [];
+    window.addEventListener("keydown", (event) => {
+      if (event.key.startsWith("Arrow")) keys.push(event.key);
+    });
+
+    renderApp();
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+
+    const files = [
+      new File(["image-0"], "input-1.png", { type: "image/png" }),
+      new File(["image-1"], "input-2.png", { type: "image/png" }),
+    ];
+    await user.upload(screen.getByLabelText("选择本地图片"), files);
+
+    await user.click(screen.getByRole("button", { name: "预览输入图片 1" }));
+    await screen.findByRole("dialog");
+
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{ArrowUp}");
+    expect(keys.filter((key) => key === "ArrowDown" || key === "ArrowUp")).toHaveLength(0);
+
+    await user.keyboard("{ArrowRight}");
+    expect(keys).toContain("ArrowRight");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("switches previewed edit images with arrow buttons and keyboard", async () => {
+
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+
+    const files = [
+      new File(["image-0"], "input-1.png", { type: "image/png" }),
+      new File(["image-1"], "input-2.png", { type: "image/png" }),
+    ];
+    await user.upload(screen.getByLabelText("选择本地图片"), files);
+    expect(screen.getAllByRole("button", { name: /删除输入图片 \d+/ })).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "预览输入图片 1" }));
+    const dialog = await screen.findByRole("dialog");
+    const firstSrc = within(dialog).getByRole("img").getAttribute("src");
+
+    await user.click(within(dialog).getByRole("button", { name: "下一张" }));
+    await waitFor(() => expect(within(dialog).getByRole("img").getAttribute("src")).not.toBe(firstSrc));
+
+    await user.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(within(dialog).getByRole("img").getAttribute("src")).toBe(firstSrc));
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("adds pasted images into edit inputs from the prompt box in edit mode", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+
+    const prompt = screen.getByLabelText("Prompt");
+    const file = new File(["pasted"], "pasted.png", { type: "image/png" });
+    fireEvent.paste(prompt, {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => file }],
+        files: [file],
+      },
+    });
+
+    expect(await screen.findByRole("button", { name: "删除输入图片 1" })).toBeInTheDocument();
+    expect(screen.getByTestId("edit-image-preview-strip")).toBeInTheDocument();
+  });
+
   test("adds historical completed request images into edit inputs", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });
