@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { ImagePreviewDialog } from "@/components/image-preview-dialog";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -18,6 +19,7 @@ import {
   requestStatusDisplayLabel,
   revisedPromptForResponse,
   reusablePromptForRequest,
+  type EditInputImage,
   type GeneratedImage,
   type ImageRequestRecord,
 } from "@/lib/image-console";
@@ -349,9 +351,90 @@ export function ResultPanel({
         </div>
 
         <div className="min-h-0 flex-1 p-4">
-          <Gallery request={selectedRequest} loading={selectedRequestDetailLoading} onEditImage={onEditImage} />
+          <div className="flex h-full min-h-90 min-w-0 gap-3">
+            <RequestInputImageRail request={selectedRequest} />
+            <div className="min-h-0 min-w-0 flex-1">
+              <Gallery request={selectedRequest} loading={selectedRequestDetailLoading} onEditImage={onEditImage} />
+            </div>
+          </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function requestInputImages(request: ImageRequestRecord | null) {
+  if (request?.method !== "edit") return [];
+  return (request.editImages || []).filter((image) => image.src);
+}
+
+function RequestInputImageRail({ request }: { request: ImageRequestRecord | null }) {
+  const { copy } = useI18n();
+  const inputImages = requestInputImages(request);
+  const requestId = request?.id || "";
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    setPreviewIndex(null);
+  }, [requestId]);
+
+  if (!inputImages.length) return null;
+
+  return (
+    <>
+      <div
+        className="flex w-16 shrink-0 flex-col gap-1.5 overflow-y-auto"
+        data-testid="request-input-image-rail"
+      >
+        {inputImages.map((image, index) => (
+          <RequestInputImageThumb
+            key={`${image.sourceKey || image.name}-${index}`}
+            image={image}
+            index={index}
+            label={`${copy.requestCardStatus.previewInputImage} ${index + 1}`}
+            onPreview={() => setPreviewIndex(index)}
+          />
+        ))}
+      </div>
+      <ImagePreviewDialog
+        images={inputImages}
+        index={previewIndex}
+        onIndexChange={setPreviewIndex}
+        title={copy.requestCardStatus.previewInputImage}
+        previousLabel={copy.generator.previewPreviousImage}
+        nextLabel={copy.generator.previewNextImage}
+      />
+    </>
+  );
+}
+
+function RequestInputImageThumb({
+  image,
+  index,
+  label,
+  onPreview,
+}: {
+  image: EditInputImage;
+  index: number;
+  label: string;
+  onPreview: () => void;
+}) {
+  return (
+    <div className="relative aspect-square w-full overflow-hidden rounded-md border border-border bg-muted/30">
+      <button
+        type="button"
+        className="block h-full w-full cursor-zoom-in"
+        aria-label={label}
+        data-testid={`request-input-image-${index + 1}`}
+        onClick={onPreview}
+      >
+        <img
+          src={image.src}
+          alt=""
+          aria-hidden="true"
+          className="block h-full w-full object-cover object-center"
+        />
+      </button>
+    </div>
   );
 }

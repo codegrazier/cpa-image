@@ -25,6 +25,8 @@ import {
   normalizeRequestConcurrency,
   normalizeRequestIntervalSeconds,
   prepareImageForDetailCache,
+  prepareEditInputImageForCache,
+  prepareEditInputImageForRuntime,
   prepareImageForRuntime,
   prepareImageForThumbnailCache,
   requestFilterCounts,
@@ -928,6 +930,24 @@ describe("image console logic", () => {
     expect(runtimeImage.src).toMatch(/^blob:/);
     expect(runtimeImage.objectUrl).toBe(runtimeImage.src);
     expect(runtimeImage).not.toHaveProperty("blob");
+  });
+
+  test("prepares edit input images as blobs for cache and object URLs for runtime", () => {
+    const file = new File(["image-bytes"], "input.png", { type: "image/png" });
+    const cached = prepareEditInputImageForCache({
+      src: "blob:preview",
+      name: "input.png",
+      mimeType: "image/png",
+      file,
+      sourceKey: "request:0",
+    });
+    const runtime = prepareEditInputImageForRuntime(cached!);
+
+    expect(cached?.src).toBe("");
+    expect(cached?.blob).toBeInstanceOf(Blob);
+    expect(cached?.sourceKey).toBe("request:0");
+    expect(runtime.src).toMatch(/^blob:/);
+    expect(runtime.blob).toBeInstanceOf(Blob);
   });
 
   test("prepares compact thumbnail images for list previews", async () => {

@@ -37,6 +37,8 @@ import {
   payloadSize,
   prepareImageForDetailCache,
   prepareEditInputImage,
+  cloneEditInputImagesForRequest,
+  prepareEditInputImageForRuntime,
   prepareImageForRuntime,
   prepareImageForThumbnailCache,
   DEFAULT_STORED_SETTINGS,
@@ -306,6 +308,10 @@ function missingConnectionMessage(settings: Pick<AppSettings, "baseUrl" | "apiKe
 
 function isGeneratedImage(value: ReturnType<typeof prepareImageForDetailCache>): value is GeneratedImage {
   return Boolean(value);
+}
+
+function hasReusableEditInputSource(image: EditInputImage) {
+  return Boolean(image.blob || image.file || String(image.src || "").startsWith("data:image/"));
 }
 
 function collectObjectUrls(records: ImageRequestRecord[]) {
@@ -760,7 +766,13 @@ export function useImageConsole() {
     }
 
     const currentSelected = requestRecordsRef.current.find((request) => request.id === selectedRequestId);
-    if (currentSelected && (currentSelected.images.length || currentSelected.response != null || currentSelected.rawResponse != null)) {
+    if (
+      currentSelected &&
+      (currentSelected.images.length ||
+        currentSelected.response != null ||
+        currentSelected.rawResponse != null ||
+        currentSelected.editImages?.length)
+    ) {
       retainRequestDetail(selectedRequestId);
     }
 
@@ -809,6 +821,10 @@ export function useImageConsole() {
           (normalizedDetailImages[0] ? await prepareImageForThumbnailCache(normalizedDetailImages[0]) : selectedRequest.thumbnail || null);
         const detailImageSizeBytes = imageSizeBytes(normalizedDetailImages);
 
+        const cachedEditImages = detail?.editImages?.length
+          ? detail.editImages
+          : selectedRequest.editImages || [];
+
         if (detail && !cancelled) {
           const responseSource = detail.rawResponse ?? detail.response ?? null;
           void saveRequestDetails(
@@ -819,6 +835,7 @@ export function useImageConsole() {
                 response: responseSource == null ? null : sanitizeResponseForDisplay(responseSource),
                 rawResponse: responseSource,
                 thumbnail,
+                editImages: cachedEditImages,
               },
             ],
             { prune: false },
@@ -848,6 +865,7 @@ export function useImageConsole() {
                       : ""),
                   hasCachedDetails: Boolean(detail || request.hasCachedDetails),
                   detailsMissing: !detail,
+                  editImages: cachedEditImages.map(prepareEditInputImageForRuntime),
                 }
               : request,
           ),
@@ -1012,6 +1030,7 @@ export function useImageConsole() {
               response: displayResponse,
               rawResponse: body,
               thumbnail,
+              editImages: request.editImages || [],
             },
           ],
           { prune: false },
@@ -1043,13 +1062,17 @@ export function useImageConsole() {
           toast.error(copy.runtime.crossOriginRequestFailed);
         }
         const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
-        if (failedRequest && typedError.responseBody != null) {
+        if (failedRequest && (typedError.responseBody != null || failedRequest.editImages?.length)) {
           void saveRequestDetails(
             [
               {
                 ...failedRequest,
-                response: sanitizeResponseForDisplay(typedError.responseBody),
-                rawResponse: typedError.responseBody,
+                response:
+                  typedError.responseBody == null
+                    ? failedRequest.response ?? null
+                    : sanitizeResponseForDisplay(typedError.responseBody),
+                rawResponse: typedError.responseBody ?? failedRequest.rawResponse ?? null,
+                editImages: failedRequest.editImages || [],
               },
             ],
             { prune: false },
@@ -1562,10 +1585,9 @@ export function useImageConsole() {
     let endpoint: string;
     let method: GenerationMethod;
     const enableCrossOriginProxy = currentSettings.enableCrossOriginProxy;
-    const runtimeImages = editImages.map((image) => ({ ...image }));
 
     try {
-      const payload = buildEditImagePayload(values, runtimeImages, language);
+      const payload = buildEditImagePayload(values, editImages, language);
       requestPayloads = buildEditImageRequests(payload, values.n);
       endpoint = normalizeImageEditsEndpoint(values.baseUrl, enableCrossOriginProxy);
       method = "edit";
@@ -1575,6 +1597,8 @@ export function useImageConsole() {
       toast.error(message);
       return false;
     }
+
+    const runtimeImages = cloneEditInputImagesForRequest(editImages);
 
     const nextStoredSettings = updateStoredSettingsForCurrentMode(
       storedSettingsRef.current,
@@ -1625,6 +1649,10 @@ export function useImageConsole() {
       const nextSelectedRequestId = adjacentVisibleRequestId(requestRecordsRef.current, requestId, selectedRequestFilter);
       cancelRequestedRef.current.add(requestId);
       controllersRef.current.get(requestId)?.abort();
+      if (request.editImages?.length) {
+        retainRequestDetail(requestId);
+        void saveRequestDetails([request], { prune: false });
+      }
 
       commitRecords((records) =>
         records.map((item) =>
@@ -1635,7 +1663,7 @@ export function useImageConsole() {
                 endedAt: now,
                 error: wasQueued ? copy.runtime.requestCanceledBeforeSend : copy.runtime.requestCanceled,
                 cancelRequested: true,
-                editImages: [],
+                hasCachedDetails: item.hasCachedDetails || Boolean(item.editImages?.length),
               }
             : item,
         ),
@@ -1644,7 +1672,7 @@ export function useImageConsole() {
       setStatusMessageSource({ type: "request-canceled", title: request.title });
       scheduleQueueRef.current();
     },
-    [commitRecords, copy, selectedRequestFilter],
+    [commitRecords, copy, retainRequestDetail, selectedRequestFilter],
   );
 
   const cancelAllRequests = useCallback(() => {
@@ -1657,6 +1685,14 @@ export function useImageConsole() {
     for (const request of runningRequests) {
       cancelRequestedRef.current.add(request.id);
       controllersRef.current.get(request.id)?.abort();
+    }
+
+    const canceledWithInputImages = activeRequests.filter((request) => request.editImages?.length);
+    if (canceledWithInputImages.length) {
+      for (const request of canceledWithInputImages) {
+        retainRequestDetail(request.id);
+      }
+      void saveRequestDetails(canceledWithInputImages, { prune: false });
     }
 
     clearQueueTimer();
@@ -1673,13 +1709,13 @@ export function useImageConsole() {
               endedAt: now,
               error: item.status === "queued" ? copy.runtime.requestCanceledBeforeSend : copy.runtime.requestCanceled,
               cancelRequested: true,
-              editImages: [],
+              hasCachedDetails: item.hasCachedDetails || Boolean(item.editImages?.length),
             }
           : item,
       ),
     );
     setStatusMessageSource({ type: "requests-canceled", count: activeRequests.length });
-  }, [clearQueueTimer, commitRecords, copy]);
+  }, [clearQueueTimer, commitRecords, copy, retainRequestDetail]);
 
   const clearAllRequests = useCallback(() => {
     for (const controller of controllersRef.current.values()) {
@@ -1752,6 +1788,23 @@ export function useImageConsole() {
       if (!reusablePrompt) return;
       setPrompt(reusablePrompt);
       setStatusMessageSource({ type: "prompt-history-refilled", value: request.title });
+      if (modeRef.current !== "edit") return;
+
+      void (async () => {
+        const live = requestRecordsRef.current.find((item) => item.id === request.id) || request;
+        const memoryImages = (live.editImages || []).filter(hasReusableEditInputSource);
+        if (memoryImages.length) {
+          setEditImages(cloneEditInputImagesForRequest(memoryImages).slice(0, MAX_EDIT_INPUT_IMAGES));
+          return;
+        }
+        if (live.method !== "edit") return;
+
+        const detail = await loadRequestDetails(live.id);
+        if (modeRef.current !== "edit") return;
+        const cachedImages = (detail?.editImages || []).filter(hasReusableEditInputSource);
+        if (!cachedImages.length) return;
+        setEditImages(cachedImages.map(prepareEditInputImageForRuntime).slice(0, MAX_EDIT_INPUT_IMAGES));
+      })();
     },
     [setPrompt],
   );

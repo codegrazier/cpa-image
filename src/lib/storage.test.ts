@@ -201,6 +201,26 @@ describe("storage", () => {
     expect(await loadRequestDetails("same-request")).toMatchObject({ rawResponse: { marker: "second" } });
   });
 
+  test("persists edit input images with request details", async () => {
+    const file = new File(["image-bytes"], "input.png", { type: "image/png" });
+    await saveRequestDetails([
+      requestRecordFixture({
+        id: "edit-request",
+        method: "edit",
+        rawResponse: { data: [] },
+        editImages: [{ src: "blob:preview", name: "input.png", mimeType: "image/png", file }],
+      }),
+    ]);
+
+    const detail = await loadRequestDetails("edit-request");
+    expect(detail?.editImages).toHaveLength(1);
+    expect(detail?.editImages?.[0]).toMatchObject({
+      name: "input.png",
+      mimeType: "image/png",
+    });
+    expect(detail?.editImages?.[0].blob).toBeTruthy();
+  });
+
   test("does not restore details when a pending save is deleted before it runs", async () => {
     const save = saveRequestDetails([requestRecordFixture({ id: "deleted-request", rawResponse: { marker: "late" } })]);
     const deletion = deleteRequestDetails(["deleted-request"]);

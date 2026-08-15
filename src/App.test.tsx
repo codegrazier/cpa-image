@@ -581,6 +581,172 @@ describe("App", () => {
     expect(Array.from(body.entries()).filter(([key]) => key === "image[]")).toHaveLength(1);
     expect(String(body.get("prompt"))).toContain("glass jellyfish");
     expect(body.get("model")).toBe("gpt-image-2");
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    expect(within(resultPanel).getByTestId("request-input-image-rail")).toBeInTheDocument();
+    await user.click(within(resultPanel).getByRole("button", { name: "查看输入图片 1" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("img")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "删除输入图片 1" }));
+    expect(screen.queryByTestId("edit-image-preview-strip")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /复用 Prompt/ }));
+    expect(await screen.findByTestId("edit-image-preview-strip")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除输入图片 1" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Prompt")).toHaveValue("glass jellyfish");
+  });
+
+  test("keeps canceled edit input images after leaving and reselecting the request", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestConcurrency: 1, requestIntervalSeconds: 0 });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    renderApp();
+    const prompt = await screen.findByLabelText("Prompt");
+    await user.type(prompt, "first generate");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await user.type(await screen.findByLabelText("Prompt"), "edit hanging");
+    const file = new File(["image-bytes"], "input.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("选择本地图片"), file);
+    await user.click(screen.getByRole("button", { name: /^edits$/ }));
+
+    const requestList = screen.getByRole("complementary", { name: "请求列表" });
+    await waitFor(() =>
+      expect(within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ })).toHaveLength(2),
+    );
+
+    const [editCard] = within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ });
+    const editCardRow = editCard.parentElement as HTMLElement;
+    await user.click(editCard);
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    expect(await within(resultPanel).findByTestId("request-input-image-rail")).toBeInTheDocument();
+
+    await user.click(within(editCardRow).getByRole("button", { name: "取消请求" }));
+
+    await waitFor(() => {
+      expect(within(resultPanel).queryByTestId("request-input-image-rail")).not.toBeInTheDocument();
+    });
+
+    await user.click(editCard);
+    expect(await within(resultPanel).findByTestId("request-input-image-rail")).toBeInTheDocument();
+  });
+
+  test("loads cached response JSON for a canceled edit request that still has input images", async () => {
+    const user = userEvent.setup();
+    const cachedRequests: ImageRequestRecord[] = [
+      {
+        id: "canceled-edit",
+        title: "260815-1400-1",
+        index: 1,
+        total: 1,
+        method: "edit",
+        endpoint: "http://localhost:8317/v1/images/edits",
+        payload: { model: "gpt-image-2", n: 1 },
+        sourcePrompt: "glass jellyfish",
+        imageCount: 0,
+        imageResolution: "",
+        imageSizeBytes: 0,
+        hasCachedDetails: true,
+        detailsMissing: false,
+        status: "canceled",
+        createdAt: 1000,
+        startedAt: 1000,
+        endedAt: 2000,
+        completedAt: null,
+        images: [],
+        response: null,
+        rawResponse: null,
+        error: "请求已取消",
+        controller: null,
+        cancelRequested: true,
+        thumbnail: null,
+        editImages: [{ src: "blob:input", name: "input.png", mimeType: "image/png" }],
+      },
+    ];
+    vi.spyOn(storage, "loadCachedRequests").mockResolvedValue(cachedRequests);
+    vi.spyOn(storage, "saveCachedRequests").mockImplementation(() => undefined);
+    vi.spyOn(storage, "saveRequestDetails").mockResolvedValue(undefined);
+    vi.spyOn(storage, "loadRequestDetails").mockResolvedValue({
+      images: [],
+      response: null,
+      rawResponse: { upstream: "canceled-edit-raw-marker" },
+      thumbnail: null,
+      editImages: [{ src: "", name: "input.png", mimeType: "image/png", blob: new File(["x"], "input.png", { type: "image/png" }) }],
+      savedAt: Date.now(),
+    });
+
+    renderApp();
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    expect(await within(resultPanel).findByTestId("request-input-image-rail")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /响应 JSON/ }));
+    expect(within(screen.getByRole("dialog", { name: "响应 JSON" })).getByText(/canceled-edit-raw-marker/)).toBeInTheDocument();
+  });
+
+  test("does not refill edit images if the mode changes before reuse details load", async () => {
+    const user = userEvent.setup();
+    let resolveDetail: (value: Awaited<ReturnType<typeof storage.loadRequestDetails>>) => void = () => undefined;
+    const pendingDetail = new Promise<Awaited<ReturnType<typeof storage.loadRequestDetails>>>((resolve) => {
+      resolveDetail = resolve;
+    });
+    const cachedRequests: ImageRequestRecord[] = [
+      {
+        id: "edit-request",
+        title: "260815-1401-1",
+        index: 1,
+        total: 1,
+        method: "edit",
+        endpoint: "http://localhost:8317/v1/images/edits",
+        payload: { model: "gpt-image-2", n: 1 },
+        sourcePrompt: "glass jellyfish",
+        imageCount: 0,
+        imageResolution: "",
+        imageSizeBytes: 0,
+        hasCachedDetails: true,
+        detailsMissing: false,
+        status: "canceled",
+        createdAt: 1000,
+        startedAt: 1000,
+        endedAt: 2000,
+        completedAt: null,
+        images: [],
+        response: null,
+        rawResponse: null,
+        error: "请求已取消",
+        controller: null,
+        cancelRequested: true,
+        thumbnail: null,
+        editImages: [],
+      },
+    ];
+    vi.spyOn(storage, "loadCachedRequests").mockResolvedValue(cachedRequests);
+    vi.spyOn(storage, "saveCachedRequests").mockImplementation(() => undefined);
+    vi.spyOn(storage, "saveRequestDetails").mockResolvedValue(undefined);
+    vi.spyOn(storage, "loadRequestDetails").mockReturnValue(pendingDetail);
+
+    renderApp();
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await user.click(await screen.findByRole("button", { name: /复用 Prompt/ }));
+    await user.click(screen.getByRole("tab", { name: "生图" }));
+
+    resolveDetail({
+      images: [],
+      response: null,
+      rawResponse: null,
+      thumbnail: null,
+      editImages: [{ src: "", name: "input.png", mimeType: "image/png", blob: new File(["x"], "input.png", { type: "image/png" }) }],
+      savedAt: Date.now(),
+    });
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveValue("glass jellyfish"));
+    expect(screen.queryByTestId("edit-image-preview-strip")).not.toBeInTheDocument();
   });
 
   test("blocks generation and edit submissions until API URL and API key are configured", async () => {

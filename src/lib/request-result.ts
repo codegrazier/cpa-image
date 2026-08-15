@@ -70,7 +70,7 @@ export function applyCompletedRequestResult(
     error: missingImageMessage,
     endedAt,
     completedAt: extractedImageCount ? completedAt : request.completedAt ?? null,
-    editImages: [],
+    editImages: request.editImages || [],
   };
 }
 
@@ -103,8 +103,8 @@ export function applyFailedRequestResult(
     error: aborted ? requestCanceledMessage : error.message,
     response: nextResponse,
     rawResponse: nextRawResponse,
-    hasCachedDetails: request.hasCachedDetails || responseBody != null,
+    hasCachedDetails: request.hasCachedDetails || responseBody != null || Boolean(request.editImages?.length),
     endedAt,
-    editImages: [],
+    editImages: request.editImages || [],
   };
 }

@@ -108,6 +108,24 @@ describe("request result", () => {
     expect(result.images).toHaveLength(1);
   });
 
+  test("keeps edit input images on the selected completed request", () => {
+    const editImages = [{ src: "blob:input", name: "input.png", mimeType: "image/png" }];
+    const result = applyCompletedRequestResult(requestRecordFixture({ method: "edit", editImages }), {
+      rawResponse: { data: [{ b64_json: "x".repeat(300) }] },
+      displayResponse: { data: [{ b64_json: "[image data omitted, 300 chars]" }] },
+      extractedImageCount: 1,
+      localImages: [imageFixture({ path: "runtime.png" })],
+      detailImages: [imageFixture({ width: 1440, height: 1080, blob: new Blob(["image-bytes"]) })],
+      thumbnail: null,
+      missingImageMessage: "",
+      keepRuntimeDetails: true,
+      endedAt: 20,
+      completedAt: 30,
+    });
+
+    expect(result.editImages).toEqual(editImages);
+  });
+
   test("keeps existing summary fields and omits runtime details when unselected", () => {
     const result = applyCompletedRequestResult(
       requestRecordFixture({ imageSizeBytes: 5, imageResolution: "512x512", completedAt: 10 }),
@@ -140,6 +158,25 @@ describe("request result", () => {
     });
   });
 
+  test("keeps edit input images even when runtime output details are stripped", () => {
+    const editImages = [{ src: "blob:input", name: "input.png", mimeType: "image/png" }];
+    const result = applyCompletedRequestResult(requestRecordFixture({ method: "edit", editImages }), {
+      rawResponse: { data: [{ b64_json: "x".repeat(300) }] },
+      displayResponse: { data: [{ b64_json: "[image data omitted, 300 chars]" }] },
+      extractedImageCount: 1,
+      localImages: [imageFixture({ path: "runtime.png" })],
+      detailImages: [imageFixture({ width: 1440, height: 1080, blob: new Blob(["image-bytes"]) })],
+      thumbnail: null,
+      missingImageMessage: "",
+      keepRuntimeDetails: false,
+      endedAt: 20,
+      completedAt: 30,
+    });
+
+    expect(result.images).toEqual([]);
+    expect(result.editImages).toEqual(editImages);
+  });
+
   test("applies failed request response details and sanitizes image fields", () => {
     const error = new Error("Request failed") as Error & { responseBody?: unknown };
     error.responseBody = { error: { message: "bad" }, image: "x".repeat(300) };
@@ -157,6 +194,26 @@ describe("request result", () => {
       rawResponse: error.responseBody,
       endedAt: 20,
       editImages: [],
+    });
+  });
+
+  test("marks failed edit requests as detail-backed when only input images exist", () => {
+    const error = new Error("network down");
+    const editImages = [{ src: "blob:input", name: "input.png", mimeType: "image/png" }];
+    const result = applyFailedRequestResult(requestRecordFixture({ method: "edit", editImages }), {
+      error,
+      requestCanceledMessage: "请求已取消",
+      endedAt: 20,
+      keepRuntimeDetails: false,
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      error: "network down",
+      response: null,
+      rawResponse: null,
+      hasCachedDetails: true,
+      editImages,
     });
   });
 

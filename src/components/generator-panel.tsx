@@ -1,8 +1,6 @@
 import {
   CheckIcon,
   ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ImageIcon,
   ImagePlusIcon,
   LanguagesIcon,
@@ -21,9 +19,9 @@ import {
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { toast } from "sonner";
 
+import { ImagePreviewDialog } from "@/components/image-preview-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog as DialogPrimitive } from "radix-ui";
 import { Field, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -303,32 +301,6 @@ export function GeneratorPanel({
   const [previewEditImageIndex, setPreviewEditImageIndex] = useState<number | null>(null);
   const generationButtonFeedbackClassName = "transition-all duration-100 active:translate-y-px active:scale-[0.99] active:brightness-95";
   const editImageSelectionFull = editImages.length >= MAX_EDIT_INPUT_IMAGES;
-  const previewEditImage = previewEditImageIndex !== null ? editImages[previewEditImageIndex] ?? null : null;
-
-  useEffect(() => {
-    if (previewEditImageIndex !== null && !editImages[previewEditImageIndex]) {
-      setPreviewEditImageIndex(null);
-    }
-  }, [editImages, previewEditImageIndex]);
-
-  useEffect(() => {
-    if (previewEditImageIndex === null) return;
-    function handlePreviewKeyDown(event: KeyboardEvent) {
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        setPreviewEditImageIndex((current) =>
-          current === null ? current : (current - 1 + editImages.length) % editImages.length,
-        );
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        setPreviewEditImageIndex((current) =>
-          current === null ? current : (current + 1) % editImages.length,
-        );
-      }
-    }
-    window.addEventListener("keydown", handlePreviewKeyDown);
-    return () => window.removeEventListener("keydown", handlePreviewKeyDown);
-  }, [editImages.length, previewEditImageIndex]);
 
   useEffect(() => {
     if (promptFocusSignal <= 0) return;
@@ -692,61 +664,14 @@ export function GeneratorPanel({
           </>
         )}
       </div>
-      <DialogPrimitive.Root open={previewEditImageIndex !== null} onOpenChange={(open) => { if (!open) setPreviewEditImageIndex(null); }}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-          <DialogPrimitive.Content
-            aria-describedby={undefined}
-            onClick={() => setPreviewEditImageIndex(null)}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-                event.stopPropagation();
-              }
-            }}
-            className="fixed inset-0 z-50 flex items-center justify-center outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 duration-200"
-          >
-            <DialogPrimitive.Title className="sr-only">{copy.generator.previewInputImage}</DialogPrimitive.Title>
-            {previewEditImage ? (
-              <img
-                src={previewEditImage.src}
-                alt={copy.generator.previewInputImage}
-                className="block max-h-[85vh] w-auto max-w-[calc(100vw-7rem)] object-contain"
-                onClick={(event) => event.stopPropagation()}
-              />
-            ) : null}
-            {editImages.length > 1 ? (
-              <>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="icon"
-                  className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-border/70 bg-background/85 shadow-sm backdrop-blur"
-                  aria-label={copy.generator.previewPreviousImage}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setPreviewEditImageIndex((current) => (current === null ? current : (current - 1 + editImages.length) % editImages.length));
-                  }}
-                >
-                  <ChevronLeftIcon data-icon="inline-start" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="icon"
-                  className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-border/70 bg-background/85 shadow-sm backdrop-blur"
-                  aria-label={copy.generator.previewNextImage}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setPreviewEditImageIndex((current) => (current === null ? current : (current + 1) % editImages.length));
-                  }}
-                >
-                  <ChevronRightIcon data-icon="inline-start" />
-                </Button>
-              </>
-            ) : null}
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
+      <ImagePreviewDialog
+        images={editImages}
+        index={previewEditImageIndex}
+        onIndexChange={setPreviewEditImageIndex}
+        title={copy.generator.previewInputImage}
+        previousLabel={copy.generator.previewPreviousImage}
+        nextLabel={copy.generator.previewNextImage}
+      />
     </form>
   );
 }

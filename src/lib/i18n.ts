@@ -253,6 +253,7 @@ type Copy = {
     editImage: string;
     rotateCounterclockwise: string;
     resolution: string;
+    previewInputImage: string;
   };
   promptHistory: {
     title: string;
@@ -483,6 +484,7 @@ const COPY: Record<Language, Copy> = {
       editImage: "编辑图片",
       rotateCounterclockwise: "逆时针旋转图片",
       resolution: "响应分辨率",
+      previewInputImage: "查看输入图片",
     },
     promptHistory: {
       title: "历史 Prompt",
@@ -735,6 +737,7 @@ const COPY: Record<Language, Copy> = {
       editImage: "Edit image",
       rotateCounterclockwise: "Rotate image counterclockwise",
       resolution: "Resolution",
+      previewInputImage: "View input image",
     },
     promptHistory: {
       title: "Prompt history",

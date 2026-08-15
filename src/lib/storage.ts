@@ -9,6 +9,7 @@ import {
   PINNED_PROMPT_HISTORY_KEY,
   PROMPT_HISTORY_KEY_BY_MODE,
   prepareImageForDetailCache,
+  prepareEditInputImageForCache,
   PROMPT_HISTORY_KEY,
   REQUEST_CACHE_KEY,
   REQUEST_DETAIL_DB_NAME,
@@ -22,6 +23,7 @@ import {
   type ModeSettings,
   type StoredConsoleSettings,
   type GeneratedImage,
+  type EditInputImage,
   type ImageRequestRecord,
   normalizeModeSettings,
   normalizeSharedSettings,
@@ -34,6 +36,7 @@ interface RequestDetailEntry {
   response: unknown;
   rawResponse?: unknown;
   thumbnail?: GeneratedImage | null;
+  editImages?: EditInputImage[];
   savedAt: number;
 }
 
@@ -432,7 +435,12 @@ function requestDetailEntryFromRecord(request: ImageRequestRecord): RequestDetai
   }
 
   if (hasRuntimeOnlyImage) return null;
-  if (!images.length && request.response == null && request.rawResponse == null) return null;
+
+  const editImages = (request.editImages || [])
+    .map(prepareEditInputImageForCache)
+    .filter((image): image is EditInputImage => Boolean(image));
+
+  if (!images.length && request.response == null && request.rawResponse == null && !editImages.length) return null;
 
   return {
     id: request.id,
@@ -440,6 +448,7 @@ function requestDetailEntryFromRecord(request: ImageRequestRecord): RequestDetai
     response: request.response ?? null,
     rawResponse: request.rawResponse ?? request.response ?? null,
     thumbnail: request.thumbnail ? prepareImageForDetailCache(request.thumbnail) : null,
+    editImages,
     savedAt: Date.now(),
   };
 }
@@ -512,6 +521,7 @@ export async function loadRequestDetails(id: string) {
       response: detail.response ?? null,
       rawResponse: detail.rawResponse ?? detail.response ?? null,
       thumbnail: detail.thumbnail ?? null,
+      ...(Array.isArray(detail.editImages) ? { editImages: detail.editImages } : {}),
       savedAt: detail.savedAt,
     };
   } catch {

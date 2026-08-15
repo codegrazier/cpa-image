@@ -790,7 +790,8 @@ export function prepareRequestForCache(request: ImageRequestRecord, language: Me
       request.hasCachedDetails ||
         (request.images?.length || 0) > 0 ||
         request.response != null ||
-        request.thumbnail,
+        request.thumbnail ||
+        (request.editImages?.length || 0) > 0,
     ),
     thumbnail: request.thumbnail ? serializeGeneratedImage(request.thumbnail) : null,
     status,
@@ -1375,6 +1376,66 @@ export function prepareEditInputImage(image: GeneratedImage, name: string): Edit
     mimeType: blob.type || image.mimeType || "image/png",
     blob,
   };
+}
+
+function editInputImageBlob(image: EditInputImage): Blob | null {
+  if (typeof Blob === "undefined") return null;
+  if (image.blob instanceof Blob) return image.blob;
+  if (image.file instanceof Blob) return image.file;
+  return null;
+}
+
+export function prepareEditInputImageForCache(image: EditInputImage): EditInputImage | null {
+  const blob = editInputImageBlob(image);
+  if (blob) {
+    return {
+      src: "",
+      name: image.name,
+      mimeType: blob.type || image.mimeType,
+      blob,
+      sourceKey: image.sourceKey,
+    };
+  }
+
+  if (String(image.src || "").startsWith("data:image/")) {
+    return {
+      src: image.src,
+      name: image.name,
+      mimeType: image.mimeType,
+      sourceKey: image.sourceKey,
+    };
+  }
+
+  return null;
+}
+
+export function prepareEditInputImageForRuntime(image: EditInputImage): EditInputImage {
+  const blob = editInputImageBlob(image);
+  if (blob && typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+    try {
+      return {
+        src: URL.createObjectURL(blob),
+        name: image.name,
+        mimeType: blob.type || image.mimeType,
+        blob,
+        sourceKey: image.sourceKey,
+      };
+    } catch {
+      // 预览 URL 创建失败时回退到原始 src。
+    }
+  }
+
+  return {
+    src: image.src,
+    name: image.name,
+    mimeType: image.mimeType,
+    blob: blob || undefined,
+    sourceKey: image.sourceKey,
+  };
+}
+
+export function cloneEditInputImagesForRequest(images: EditInputImage[]): EditInputImage[] {
+  return images.map((image) => prepareEditInputImageForRuntime(image));
 }
 
 function looksLikeBase64Image(value: unknown) {
