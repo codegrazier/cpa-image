@@ -439,7 +439,7 @@ export function GeneratorPanel({
             onPaste={handlePromptPaste}
             placeholder={mode === "edit" ? copy.generator.editPromptPlaceholder : copy.generator.promptPlaceholder}
             required
-            className="h-[114px] resize-none overflow-y-auto md:h-[98px]"
+            className="min-h-[114px] max-h-64 resize-y overflow-y-auto md:min-h-[98px]"
           />
         </Field>
         {mode === "edit" ? (
