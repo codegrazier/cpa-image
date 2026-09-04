@@ -1,6 +1,6 @@
 # CPA Image — Full Reference
 
-> 把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。
+> CPA Image 是一个本地优先的 OpenAI 兼容图像生成与编辑控制台。
 
 An OpenAI-compatible image generation and editing console that lives in your browser and runs entirely locally — keys, prompts, and artifacts never leave your device.
 

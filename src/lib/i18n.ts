@@ -39,14 +39,14 @@ const SEO_COPY: Record<
 > = {
   zh: {
     title: "CPA Image | OpenAI 图像生成与编辑控制台",
-    description: "把 OpenAI 兼容的图像生成与编辑搬进浏览器：四类出图端点同面板切换，2K/4K 高清直出，百张批量按你定的节奏跑，密钥与成片留在本机不上传第三方。",
+    description: "CPA Image 是一个本地优先的 OpenAI 兼容图像生成与编辑控制台。",
     ogLocale: "zh_CN",
     ogLocaleAlternate: "en_US",
     imageAlt: "CPA Image OpenAI 图像生成与编辑控制台",
   },
   en: {
     title: "CPA Image | OpenAI Image Generation and Editing Console",
-    description: "An OpenAI-compatible image generation and editing console that lives in your browser: four output endpoints in one panel, 2K/4K HD direct output, batch up to a hundred at your own pace, with keys and artifacts kept local and never uploaded to third parties.",
+    description: "CPA Image is a local-first OpenAI-compatible image generation and editing console.",
     ogLocale: "en_US",
     ogLocaleAlternate: "zh_CN",
     imageAlt: "CPA Image OpenAI image generation and editing console",
