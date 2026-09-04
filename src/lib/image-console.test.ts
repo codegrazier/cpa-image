@@ -18,6 +18,9 @@ import {
   formatCompletionTime,
   formatRequestTiming,
   generationMethodDisplayName,
+  historicalImageThumbnail,
+  mergeHistoricalImageThumbnails,
+  missingHistoricalImageThumbnails,
   imageBlobFromDataUrl,
   missingImageOutputMessage,
   imageDownloadName,
@@ -40,6 +43,7 @@ import {
   STRICT_PROMPT_FOOTER,
   STRICT_PROMPT_HEADER,
   stripPromptPolicy,
+  type GeneratedImage,
   type ImageRequestRecord,
 } from "@/lib/image-console";
 
@@ -811,6 +815,85 @@ describe("image console logic", () => {
     expect(serialized.includes("data:image/png;base64")).toBe(false);
     expect(serialized.includes("blob:thumbnail")).toBe(false);
     expect(restored.imageCount).toBe(1);
+  });
+
+  test("keeps per-image historical thumbnails after cache restore", () => {
+    const [record] = createRequestRecords(
+      [{ model: "gpt-image-2", prompt: "one glass jellyfish", n: 1 }],
+      "http://localhost:8317/v1/images/generations",
+      1000,
+      new Date("2026-06-17T18:01:00"),
+    );
+    record.status = "done";
+    record.imageCount = 2;
+    record.thumbnail = {
+      src: "data:image/webp;base64,first",
+      kind: "base64",
+      path: "$.preview-1",
+    };
+    record.imageThumbnails = [
+      { src: "data:image/webp;base64,first", kind: "base64", path: "$.preview-1" },
+      { src: "data:image/webp;base64,second", kind: "base64", path: "$.preview-2" },
+    ];
+
+    const [cached] = cachedRequestRecords([record]);
+    const restored = restoreCachedRequest(cached);
+
+    expect(historicalImageThumbnail(record, 0)?.src).toContain("first");
+    expect(historicalImageThumbnail(record, 1)?.src).toContain("second");
+    expect(historicalImageThumbnail({ thumbnail: record.thumbnail, images: [], imageThumbnails: undefined }, 1)).toBeNull();
+    expect(restored.imageThumbnails).toHaveLength(2);
+    expect(historicalImageThumbnail(restored, 1)?.src).toContain("second");
+    expect(missingHistoricalImageThumbnails(restored)).toBe(false);
+    expect(
+      missingHistoricalImageThumbnails({
+        imageCount: 4,
+        images: [],
+        thumbnail: record.thumbnail,
+        imageThumbnails: [record.thumbnail, null, null, null],
+      }),
+    ).toBe(true);
+  });
+
+  test("replaces a partial historical thumbnail list with newly prepared ones", () => {
+    const first = {
+      src: "data:image/webp;base64,first",
+      kind: "base64" as const,
+      path: "$.preview-1",
+    };
+    const prepared = [
+      { src: "data:image/webp;base64,one", kind: "base64" as const, path: "$.preview-1" },
+      { src: "data:image/webp;base64,two", kind: "base64" as const, path: "$.preview-2" },
+      { src: "data:image/webp;base64,three", kind: "base64" as const, path: "$.preview-3" },
+      { src: "data:image/webp;base64,four", kind: "base64" as const, path: "$.preview-4" },
+    ];
+    const partial = {
+      imageCount: 4,
+      images: [] as GeneratedImage[],
+      thumbnail: first,
+      imageThumbnails: [first, null, null, null],
+    };
+
+    expect(mergeHistoricalImageThumbnails(partial, prepared)).toEqual(prepared);
+    expect(
+      mergeHistoricalImageThumbnails(
+        { ...partial, imageThumbnails: prepared },
+        [{ src: "data:image/webp;base64,stale", kind: "base64", path: "$.preview-1" }, ...prepared.slice(1)],
+      ),
+    ).toEqual(prepared);
+  });
+
+  test("falls back to the original data URL when thumbnail compression is unavailable", async () => {
+    const src = `data:image/png;base64,${PNG_BASE64}`;
+    const thumbnail = await prepareImageForThumbnailCache({
+      src,
+      kind: "base64",
+      path: "$.data[0].b64_json",
+      mimeType: "image/png",
+    });
+
+    expect(thumbnail?.src).toMatch(/^data:image\//);
+    expect(thumbnail?.kind).toBe("base64");
   });
 
   test("treats cached thumbnails as detail-backed requests on restore", () => {

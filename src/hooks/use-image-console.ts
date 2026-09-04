@@ -25,6 +25,9 @@ import {
   formatRequestTiming,
   formatBatchPrefix,
   generationMethodDisplayName,
+  historicalImageThumbnail,
+  mergeHistoricalImageThumbnails,
+  missingHistoricalImageThumbnails,
   imageCountFromValue,
   imagesPerRequestFromValue,
   imageDownloadName,
@@ -819,9 +822,14 @@ export function useImageConsole() {
           (detail?.images || []).map((image) => prepareImageForDetailCacheWithDimensions(image)),
         );
         const normalizedDetailImages = detailImages.filter(isGeneratedImage);
+        const imageThumbnails = missingHistoricalImageThumbnails(selectedRequest)
+          ? await Promise.all(normalizedDetailImages.map((image) => prepareThumbnailFromImage(image)))
+          : selectedRequest.imageThumbnails || [];
         const thumbnail =
+          selectedRequest.thumbnail ||
           detail?.thumbnail ||
-          (normalizedDetailImages[0] ? await prepareImageForThumbnailCache(normalizedDetailImages[0]) : selectedRequest.thumbnail || null);
+          imageThumbnails[0] ||
+          (normalizedDetailImages[0] ? await prepareImageForThumbnailCache(normalizedDetailImages[0]) : null);
         const detailImageSizeBytes = imageSizeBytes(normalizedDetailImages);
 
         const cachedEditImages = detail?.editImages?.length
@@ -859,6 +867,7 @@ export function useImageConsole() {
                       : sanitizeResponseForDisplay(detail.rawResponse ?? detail.response ?? null),
                   rawResponse: detail?.rawResponse ?? detail?.response ?? null,
                   thumbnail: request.thumbnail || thumbnail || null,
+                  imageThumbnails: mergeHistoricalImageThumbnails(request, imageThumbnails),
                   imageCount: detailImages.length || request.imageCount || normalizedDetailImages.length || 0,
                   imageSizeBytes: request.imageSizeBytes || detailImageSizeBytes,
                   imageResolution:
@@ -888,15 +897,18 @@ export function useImageConsole() {
   useEffect(() => {
     let cancelled = false;
 
-    const pendingRecords = requestRecordsRef.current.filter(
-      (request) =>
-        request.status === "done" &&
-        !request.thumbnail &&
-        request.hasCachedDetails &&
-        !request.detailsMissing &&
-        request.id !== selectedRequestId &&
-        !thumbnailBackfillRef.current.has(request.id),
-    );
+    const pendingRecords = requestRecordsRef.current.filter((request) => {
+      if (
+        request.status !== "done" ||
+        !request.hasCachedDetails ||
+        request.detailsMissing ||
+        request.id === selectedRequestId ||
+        thumbnailBackfillRef.current.has(request.id)
+      ) {
+        return false;
+      }
+      return missingHistoricalImageThumbnails(request);
+    });
 
     if (!pendingRecords.length) return () => {
       cancelled = true;
@@ -907,24 +919,50 @@ export function useImageConsole() {
         if (cancelled) return;
         thumbnailBackfillRef.current.add(request.id);
 
-        const detail = await loadRequestDetails(request.id);
-        if (cancelled || !detail) continue;
+        try {
+          const detail = await loadRequestDetails(request.id);
+          if (cancelled) {
+            thumbnailBackfillRef.current.delete(request.id);
+            return;
+          }
+          if (!detail) {
+            thumbnailBackfillRef.current.delete(request.id);
+            continue;
+          }
 
-        const thumbnail = detail.thumbnail || (detail.images[0] ? await prepareImageForThumbnailCache(detail.images[0]) : null);
-        if (cancelled || !thumbnail) continue;
+          const imageThumbnails = await Promise.all((detail.images || []).map((image) => prepareThumbnailFromImage(image)));
+          const thumbnail = detail.thumbnail || imageThumbnails[0] || null;
+          const filled = {
+            imageCount: Math.max(requestImageCount(request), imageThumbnails.length),
+            images: [],
+            thumbnail,
+            imageThumbnails,
+          };
+          if (cancelled) {
+            thumbnailBackfillRef.current.delete(request.id);
+            return;
+          }
+          if (missingHistoricalImageThumbnails(filled)) {
+            thumbnailBackfillRef.current.delete(request.id);
+            continue;
+          }
 
-        commitRecords((records) =>
-          records.map((item) =>
-            item.id === request.id
-              ? {
-                  ...item,
-                  thumbnail,
-                  hasCachedDetails: true,
-                }
-              : item,
-          ),
-        );
-        retainRequestDetail(request.id);
+          commitRecords((records) =>
+            records.map((item) =>
+              item.id === request.id
+                ? {
+                    ...item,
+                    thumbnail: item.thumbnail || thumbnail,
+                    imageThumbnails: mergeHistoricalImageThumbnails(item, imageThumbnails),
+                    hasCachedDetails: true,
+                  }
+                : item,
+            ),
+          );
+          retainRequestDetail(request.id);
+        } catch {
+          thumbnailBackfillRef.current.delete(request.id);
+        }
       }
     })();
 
@@ -1021,7 +1059,8 @@ export function useImageConsole() {
           await Promise.all(localImages.map((image) => prepareImageForDetailCacheWithDimensions(image)))
         ).filter(isGeneratedImage);
         const shouldKeepRuntimeDetails = selectedRequestIdRef.current === requestId;
-        const thumbnail = localImages[0] ? await prepareThumbnailFromImage(localImages[0]) : null;
+        const imageThumbnails = await Promise.all(localImages.map((image) => prepareThumbnailFromImage(image)));
+        const thumbnail = imageThumbnails[0] || null;
         const displayResponse = sanitizeResponseForDisplay(body);
         const missingImageMessage = extractedImages.length ? "" : missingImageOutputMessage(body, language);
 
@@ -1049,6 +1088,7 @@ export function useImageConsole() {
                   localImages,
                   detailImages,
                   thumbnail,
+                  imageThumbnails,
                   missingImageMessage,
                   keepRuntimeDetails: shouldKeepRuntimeDetails,
                   endedAt: performance.now(),
@@ -1208,7 +1248,7 @@ export function useImageConsole() {
         return Array.from({ length: count }, (_, imageIndex) => ({
           value: `${request.id}:${imageIndex}`,
           label: count > 1 ? `${request.title}-${imageIndex + 1}` : request.title,
-          thumbnail: request.images[imageIndex] || request.thumbnail || null,
+          thumbnail: historicalImageThumbnail(request, imageIndex),
           requestId: request.id,
           requestTitle: request.title,
           imageIndex,

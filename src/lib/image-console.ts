@@ -238,6 +238,7 @@ export interface ImageRequestRecord {
   hasCachedDetails?: boolean;
   detailsMissing?: boolean;
   thumbnail?: GeneratedImage | null;
+  imageThumbnails?: Array<GeneratedImage | null>;
   status: RequestStatus;
   createdAt: number;
   startedAt: number | null;
@@ -259,6 +260,7 @@ export interface CachedRequestRecord
   hasCachedDetails: boolean;
   imageSizeBytes?: number;
   thumbnail?: GeneratedImage | null;
+  imageThumbnails?: Array<GeneratedImage | null>;
 }
 
 export const DEFAULTS: AppSettings = {
@@ -843,6 +845,7 @@ export function prepareRequestForCache(request: ImageRequestRecord, language: Me
         (request.editImages?.length || 0) > 0,
     ),
     thumbnail: request.thumbnail ? serializeGeneratedImage(request.thumbnail) : null,
+    imageThumbnails: serializeGeneratedImages(request.imageThumbnails, request.imageCount || request.images?.length || 0),
     status,
     createdAt: request.createdAt,
     startedAt: request.startedAt,
@@ -878,6 +881,7 @@ export function restoreCachedRequest(
     hasCachedDetails: Boolean(request.hasCachedDetails || request.response != null || request.images?.length || request.thumbnail),
     detailsMissing: Boolean(request.detailsMissing),
     thumbnail: serializeGeneratedImage(request.thumbnail),
+    imageThumbnails: serializeGeneratedImages(request.imageThumbnails, Number.parseInt(String(request.imageCount), 10) || 0),
     status,
     createdAt: Number(request.createdAt) || 0,
     startedAt: Number(request.startedAt) || null,
@@ -895,6 +899,40 @@ export function restoreCachedRequest(
 
 export function cachedRequestRecords(records: ImageRequestRecord[] = [], language: MessageLanguage = "zh") {
   return records.map((record) => prepareRequestForCache(record, language));
+}
+
+function serializeGeneratedImages(images: unknown, count = 0): Array<GeneratedImage | null> | undefined {
+  const source = Array.isArray(images) ? images : [];
+  const length = Math.max(count, source.length);
+  if (!length) return undefined;
+
+  const serialized = Array.from({ length }, (_, index) => serializeGeneratedImage(source[index]));
+  return serialized.some(Boolean) ? serialized : undefined;
+}
+
+export function historicalImageThumbnail(
+  request: Pick<ImageRequestRecord, "images" | "thumbnail" | "imageThumbnails">,
+  imageIndex: number,
+) {
+  return request.images?.[imageIndex] || request.imageThumbnails?.[imageIndex] || (imageIndex === 0 ? request.thumbnail || null : null);
+}
+
+export function missingHistoricalImageThumbnails(
+  request: Pick<ImageRequestRecord, "images" | "thumbnail" | "imageThumbnails" | "imageCount">,
+) {
+  const count = requestImageCount(request);
+  if (count <= 0) return false;
+  if (count === 1) return !historicalImageThumbnail(request, 0);
+  const thumbnails = request.imageThumbnails || [];
+  if (thumbnails.length < count) return true;
+  return thumbnails.some((thumbnail, index) => index > 0 && !thumbnail);
+}
+
+export function mergeHistoricalImageThumbnails(
+  request: Pick<ImageRequestRecord, "images" | "thumbnail" | "imageThumbnails" | "imageCount">,
+  nextImageThumbnails?: Array<GeneratedImage | null>,
+) {
+  return missingHistoricalImageThumbnails(request) ? nextImageThumbnails : request.imageThumbnails;
 }
 
 function serializeGeneratedImage(image: unknown): GeneratedImage | null {
@@ -1160,6 +1198,19 @@ function imageDimensionsToThumbnail(width: number, height: number, maxEdge: numb
   };
 }
 
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    if (typeof FileReader === "undefined") {
+      reject(new Error("FileReader unavailable"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read image data."));
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function dataUrlFromBlobThumbnail(blob: Blob, maxEdge = 160) {
   if (typeof createImageBitmap !== "function" || typeof document === "undefined") return null;
 
@@ -1194,19 +1245,40 @@ export async function prepareImageForThumbnailCache(
   const blob = imageBlobFromImage(image);
   if (blob) {
     const thumbnailSrc = await dataUrlFromBlobThumbnail(blob, maxEdge);
-    if (!thumbnailSrc) {
-      return null;
+    if (thumbnailSrc) {
+      return {
+        src: thumbnailSrc,
+        kind: "base64",
+        path: image.path,
+        mimeType: "image/webp",
+      };
     }
 
+    try {
+      const src = await blobToDataUrl(blob);
+      if (src.startsWith("data:image/")) {
+        return {
+          src,
+          kind: "base64",
+          path: image.path,
+          mimeType: blob.type || image.mimeType || dataUrlMimeType(src),
+        };
+      }
+    } catch {
+      // 缩略图压缩失败时再尝试原始 data URL / 远程 URL。
+    }
+  }
+
+  if (String(image.src || "").startsWith("data:image/")) {
     return {
-      src: thumbnailSrc,
+      src: image.src,
       kind: "base64",
       path: image.path,
-      mimeType: "image/webp",
+      mimeType: image.mimeType || dataUrlMimeType(image.src),
     };
   }
 
-  if (image.kind === "url") {
+  if (image.kind === "url" && image.src) {
     return {
       src: image.src,
       kind: "url",

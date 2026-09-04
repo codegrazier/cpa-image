@@ -85,6 +85,7 @@ describe("request result", () => {
       localImages: [imageFixture({ path: "runtime.png" })],
       detailImages: [imageFixture({ width: 1440, height: 1080, blob: new Blob(["image-bytes"]) })],
       thumbnail,
+      imageThumbnails: [thumbnail],
       missingImageMessage: "",
       keepRuntimeDetails: true,
       endedAt: 20,
@@ -175,6 +176,34 @@ describe("request result", () => {
 
     expect(result.images).toEqual([]);
     expect(result.editImages).toEqual(editImages);
+  });
+
+  test("keeps per-image thumbnails when runtime output details are stripped", () => {
+    const imageThumbnails = [
+      imageFixture({ path: "thumb-1.png", src: "data:image/webp;base64,one" }),
+      imageFixture({ path: "thumb-2.png", src: "data:image/webp;base64,two" }),
+    ];
+    const result = applyCompletedRequestResult(requestRecordFixture(), {
+      rawResponse: { data: [{ b64_json: "x".repeat(300) }] },
+      displayResponse: { data: [{ b64_json: "[image data omitted, 300 chars]" }] },
+      extractedImageCount: 2,
+      localImages: [imageFixture({ path: "runtime-1.png" }), imageFixture({ path: "runtime-2.png" })],
+      detailImages: [imageFixture({ path: "detail-1.png" }), imageFixture({ path: "detail-2.png" })],
+      thumbnail: imageThumbnails[0],
+      imageThumbnails,
+      missingImageMessage: "",
+      keepRuntimeDetails: false,
+      endedAt: 20,
+      completedAt: 30,
+    });
+
+    expect(result.images).toEqual([]);
+    expect(result.imageCount).toBe(2);
+    expect(result.thumbnail?.src).toContain("one");
+    expect(result.imageThumbnails?.map((image) => image?.src)).toEqual([
+      "data:image/webp;base64,one",
+      "data:image/webp;base64,two",
+    ]);
   });
 
   test("applies failed request response details and sanitizes image fields", () => {

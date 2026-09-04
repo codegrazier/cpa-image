@@ -1177,10 +1177,13 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: "编辑" }));
     await user.click(screen.getByLabelText("选择已生成图片"));
 
-    expect(await screen.findByRole("option", { name: `${requestTitle}-1` })).toBeInTheDocument();
+    const firstOption = await screen.findByRole("option", { name: `${requestTitle}-1` });
+    expect(firstOption).toBeInTheDocument();
     expect(screen.getByRole("option", { name: `${requestTitle}-2` })).toBeInTheDocument();
+    expect(firstOption.querySelector("span:not(.sr-only)")?.textContent?.trim()).toBe("");
 
     const listbox = screen.getByRole("listbox");
+    expect(listbox.querySelector("[data-slot=select-group]")).toHaveClass("grid-cols-2");
     const thumbnails = Array.from(listbox.querySelectorAll("img")).map((image) => image.getAttribute("src"));
     expect(thumbnails).toHaveLength(2);
     expect(new Set(thumbnails).size).toBe(2);

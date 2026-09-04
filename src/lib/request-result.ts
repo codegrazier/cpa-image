@@ -39,6 +39,7 @@ export function applyCompletedRequestResult(
     localImages,
     detailImages,
     thumbnail,
+    imageThumbnails,
     missingImageMessage,
     keepRuntimeDetails,
     endedAt,
@@ -50,15 +51,18 @@ export function applyCompletedRequestResult(
     localImages: GeneratedImage[];
     detailImages: GeneratedImage[];
     thumbnail: GeneratedImage | null;
+    imageThumbnails?: Array<GeneratedImage | null>;
     missingImageMessage: string;
     keepRuntimeDetails: boolean;
     endedAt: number;
     completedAt: number;
   },
 ): ImageRequestRecord {
+  const nextImageThumbnails = imageThumbnails || request.imageThumbnails;
   return {
     ...request,
-    thumbnail: thumbnail || request.thumbnail || null,
+    thumbnail: thumbnail || request.thumbnail || nextImageThumbnails?.[0] || null,
+    imageThumbnails: nextImageThumbnails,
     response: keepRuntimeDetails ? displayResponse : null,
     rawResponse: keepRuntimeDetails ? rawResponse : null,
     images: runtimeImagesForRequest({ localImages, detailImages, keepRuntimeDetails }),

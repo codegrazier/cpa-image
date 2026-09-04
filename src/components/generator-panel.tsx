@@ -16,7 +16,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { ImagePreviewDialog } from "@/components/image-preview-dialog";
@@ -353,6 +353,8 @@ export function GeneratorPanel({
   const { copy, toggleLanguage } = useI18n();
   const editImagesInputRef = useRef<HTMLInputElement>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const historicalImageSelectTriggerRef = useRef<HTMLButtonElement>(null);
+  const [historicalImageSelectWidth, setHistoricalImageSelectWidth] = useState(0);
   const [previewEditImageIndex, setPreviewEditImageIndex] = useState<number | null>(null);
   const generationButtonFeedbackClassName = "transition-all duration-100 active:translate-y-px active:scale-[0.99] active:brightness-95";
   const editImageSelectionFull = editImages.length >= MAX_EDIT_INPUT_IMAGES;
@@ -366,6 +368,23 @@ export function GeneratorPanel({
 
     return () => window.clearTimeout(timeoutId);
   }, [promptFocusSignal]);
+
+  useLayoutEffect(() => {
+    if (mode !== "edit") return;
+
+    const trigger = historicalImageSelectTriggerRef.current;
+    if (!trigger) return;
+
+    const updateWidth = () => {
+      const width = trigger.getBoundingClientRect().width;
+      if (width > 0) setHistoricalImageSelectWidth(width);
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(trigger);
+    return () => observer.disconnect();
+  }, [mode]);
 
   function submitGeneration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -508,36 +527,67 @@ export function GeneratorPanel({
                 }}
               >
                 <SelectTrigger
+                  ref={historicalImageSelectTriggerRef}
                   id="historicalEditImages"
                   className="w-full"
                   disabled={!historicalEditImageOptions.length || editImageSelectionFull}
                 >
                   <SelectValue placeholder={copy.generator.choose} />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
+                <SelectContent
+                  className="overflow-x-hidden"
+                  style={
+                    historicalImageSelectWidth
+                      ? { width: historicalImageSelectWidth, minWidth: historicalImageSelectWidth, maxWidth: historicalImageSelectWidth }
+                      : undefined
+                  }
+                >
+                  <SelectGroup className={historicalEditImageOptions.length ? "grid w-full grid-cols-2 gap-1" : undefined}>
                     {historicalEditImageOptions.length ? (
-                      historicalEditImageOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value} className="min-h-14 items-center py-2 pr-3">
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="flex size-9 shrink-0 overflow-hidden rounded-md border border-border bg-muted/30">
-                              {option.thumbnail?.src ? (
-                                <img
-                                  src={option.thumbnail.src}
-                                  alt=""
-                                  aria-hidden="true"
-                                  className="h-full w-full object-cover object-center"
-                                />
-                              ) : (
-                                <span className="flex h-full w-full items-center justify-center text-muted-foreground">
-                                  <ImageIcon className="size-4" />
-                                </span>
-                              )}
-                            </span>
-                            <span className="min-w-0 truncate">{option.label}</span>
-                          </span>
+                      historicalEditImageOptions.map((option, index) => {
+                        const tileSize = historicalImageSelectWidth
+                          ? Math.max(0, (historicalImageSelectWidth - 12) / 2)
+                          : undefined;
+                        return (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          textValue={option.label}
+                          aria-label={option.label}
+                          className="w-auto min-w-0 p-0 pr-0 [&_[data-slot=select-item-indicator]]:hidden"
+                        >
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className="relative block shrink-0 overflow-hidden rounded-md border border-border bg-muted/30"
+                                style={
+                                  tileSize
+                                    ? { width: tileSize, height: tileSize }
+                                    : undefined
+                                }
+                              >
+                                {option.thumbnail?.src ? (
+                                  <img
+                                    src={option.thumbnail.src}
+                                    alt=""
+                                    aria-hidden="true"
+                                    className="absolute inset-0 size-full object-cover object-center"
+                                  />
+                                ) : (
+                                  <span className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                                    <ImageIcon className="size-4" />
+                                  </span>
+                                )}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side={index % 2 === 0 ? "left" : "right"} sideOffset={8}>
+                              {option.label}
+                            </TooltipContent>
+                          </Tooltip>
+                          <span className="sr-only">{option.label}</span>
                         </SelectItem>
-                      ))
+                        );
+                      })
                     ) : (
                       <SelectItem value="__empty" disabled>
                         {copy.generator.noHistoricalImages}
