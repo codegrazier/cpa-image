@@ -36,6 +36,8 @@ export const MAX_REQUEST_CONCURRENCY = 100;
 export const MIN_REQUEST_INTERVAL_SECONDS = 0;
 export const MAX_REQUEST_INTERVAL_SECONDS = 3600;
 export const MAX_IMAGE_COUNT = 100;
+export const MIN_IMAGES_PER_REQUEST = 1;
+export const MAX_IMAGES_PER_REQUEST = 10;
 export const MAX_EDIT_INPUT_IMAGES = 5;
 export const LAST_PROMPT_KEY_BY_MODE = {
   generate: LAST_PROMPT_KEY,
@@ -91,7 +93,7 @@ export function sizeOptionDisplayLabel(option: ImageSize | string) {
 
 export const QUALITY_OPTIONS = ["auto", "low", "medium", "high"] as const;
 export const BACKGROUND_OPTIONS = ["auto", "opaque", "transparent"] as const;
-export const OUTPUT_FORMAT_OPTIONS = ["png", "webp", "jpeg"] as const;
+export const OUTPUT_FORMAT_OPTIONS = ["png", "jpeg", "webp"] as const;
 
 export type ImageSize = (typeof SIZE_OPTIONS)[number];
 export type ImageAspectRatio = (typeof ASPECT_RATIO_OPTIONS)[number];
@@ -124,6 +126,7 @@ export interface AppSettings {
   aspectRatio: ImageAspectRatio;
   quality: ImageQuality;
   n: number | string;
+  imagesPerRequest: number | string;
   background: ImageBackground;
   outputFormat: ImageOutputFormat;
 }
@@ -145,7 +148,7 @@ export type SharedSettings = Pick<
 
 export type ModeSettings = Pick<
   AppSettings,
-  "size" | "useAspectRatio" | "aspectRatio" | "quality" | "n" | "background" | "outputFormat" | "strictPrompt"
+  "size" | "useAspectRatio" | "aspectRatio" | "quality" | "n" | "imagesPerRequest" | "background" | "outputFormat" | "strictPrompt"
 >;
 
 export interface StoredConsoleSettings {
@@ -164,7 +167,6 @@ export interface ImageToolPayload {
   quality?: string;
   background?: string;
   output_format?: string;
-  moderation?: string;
 }
 
 export interface EditInputImage {
@@ -203,7 +205,6 @@ export interface RequestPayload {
   quality?: string;
   background?: string;
   output_format?: string;
-  moderation?: string;
   tools?: ImageToolPayload[];
   tool_choice?: {
     type: "image_generation";
@@ -278,6 +279,7 @@ export const DEFAULTS: AppSettings = {
   aspectRatio: "1:1",
   quality: "auto",
   n: 1,
+  imagesPerRequest: 1,
   background: "auto",
   outputFormat: "png",
 };
@@ -302,6 +304,7 @@ export const DEFAULT_MODE_SETTINGS: ModeSettings = {
   aspectRatio: DEFAULTS.aspectRatio,
   quality: DEFAULTS.quality,
   n: DEFAULTS.n,
+  imagesPerRequest: DEFAULTS.imagesPerRequest,
   background: DEFAULTS.background,
   outputFormat: DEFAULTS.outputFormat,
   strictPrompt: DEFAULTS.strictPrompt,
@@ -393,6 +396,7 @@ export function normalizeModeSettings(values: unknown = {}): ModeSettings {
     aspectRatio: optionFromValue(source.aspectRatio, ASPECT_RATIO_OPTIONS, DEFAULTS.aspectRatio),
     quality: optionFromValue(source.quality, QUALITY_OPTIONS, DEFAULTS.quality),
     n: imageCountFromValue(source.n || DEFAULTS.n),
+    imagesPerRequest: imagesPerRequestFromValue(source.imagesPerRequest || DEFAULTS.imagesPerRequest),
     background: optionFromValue(source.background, BACKGROUND_OPTIONS, DEFAULTS.background),
     outputFormat: optionFromValue(source.outputFormat, OUTPUT_FORMAT_OPTIONS, DEFAULTS.outputFormat),
     strictPrompt: typeof source.strictPrompt === "boolean" ? source.strictPrompt : DEFAULTS.strictPrompt,
@@ -530,6 +534,14 @@ export function imageCountFromValue(value: unknown, language: MessageLanguage = 
   return imageCount;
 }
 
+export function imagesPerRequestFromValue(value: unknown, language: MessageLanguage = "zh") {
+  const imageCount = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(imageCount) || imageCount < MIN_IMAGES_PER_REQUEST || imageCount > MAX_IMAGES_PER_REQUEST) {
+    throw new Error(validationCopy(language).imagesPerRequestRange(MAX_IMAGES_PER_REQUEST));
+  }
+  return imageCount;
+}
+
 export function validatePromptAndOutput(
   values: Pick<GenerationValues, "prompt" | "background" | "outputFormat">,
   language: MessageLanguage = "zh",
@@ -556,7 +568,8 @@ export function buildPayload(
     background: values.background || DEFAULTS.background,
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   }, language);
-  const imageCount = imageCountFromValue(values.n || DEFAULTS.n, language);
+  const imageCount = imagesPerRequestFromValue(values.imagesPerRequest || DEFAULTS.imagesPerRequest, language);
+  imageCountFromValue(values.n || DEFAULTS.n, language);
   const model = String(values.generationsModel || DEFAULTS.generationsModel).trim();
 
   if (!model) {
@@ -571,7 +584,6 @@ export function buildPayload(
     quality: values.quality || DEFAULTS.quality,
     background: values.background || DEFAULTS.background,
     output_format: values.outputFormat || DEFAULTS.outputFormat,
-    moderation: "low",
   };
 }
 
@@ -586,6 +598,7 @@ export function buildResponsesImagePayload(
   }, language);
   const model = String(values.responsesModel || DEFAULTS.responsesModel).trim();
   imageCountFromValue(values.n || DEFAULTS.n, language);
+  imagesPerRequestFromValue(values.imagesPerRequest || DEFAULTS.imagesPerRequest, language);
 
   if (!model) {
     throw new Error(validationCopy(language).responsesModelRequired);
@@ -601,7 +614,6 @@ export function buildResponsesImagePayload(
         quality: values.quality || DEFAULTS.quality,
         background: values.background || DEFAULTS.background,
         output_format: values.outputFormat || DEFAULTS.outputFormat,
-        moderation: "low",
       },
     ],
     tool_choice: {
@@ -621,6 +633,7 @@ export function buildChatCompletionsImagePayload(
   }, language);
   const model = String(values.completionsModel || DEFAULTS.completionsModel).trim();
   imageCountFromValue(values.n || DEFAULTS.n, language);
+  imagesPerRequestFromValue(values.imagesPerRequest || DEFAULTS.imagesPerRequest, language);
 
   if (!model) {
     throw new Error(validationCopy(language).completionsModelRequired);
@@ -660,7 +673,8 @@ export function buildEditImagePayload(
     outputFormat: values.outputFormat || DEFAULTS.outputFormat,
   }, language);
   const model = String(values.editsModel || DEFAULTS.editsModel).trim();
-  const requestedCount = imageCountFromValue(values.n || DEFAULTS.n, language);
+  const requestedCount = imagesPerRequestFromValue(values.imagesPerRequest || DEFAULTS.imagesPerRequest, language);
+  imageCountFromValue(values.n || DEFAULTS.n, language);
 
   if (!model) {
     throw new Error(validationCopy(language).editsModelRequired);
@@ -682,16 +696,14 @@ export function buildEditImagePayload(
     quality: values.quality || DEFAULTS.quality,
     background: values.background || DEFAULTS.background,
     output_format: values.outputFormat || DEFAULTS.outputFormat,
-    moderation: "low",
   };
 }
 
-export function buildGenerationRequests(payload: RequestPayload) {
-  const requestedCount = Number.parseInt(String(payload.n), 10);
+export function buildGenerationRequests(payload: RequestPayload, count: unknown) {
+  const requestedCount = imageCountFromValue(count);
 
   return Array.from({ length: requestedCount }, () => ({
     ...payload,
-    n: 1,
   }));
 }
 
@@ -719,7 +731,6 @@ export function buildEditImageRequests(payload: RequestPayload, count: unknown) 
 
   return Array.from({ length: requestedCount }, () => ({
     ...payload,
-    n: 1,
   }));
 }
 
@@ -1070,6 +1081,7 @@ function validationCopy(language: MessageLanguage) {
         editInputMissing: "Please choose at least one image.",
         editInputLimit: (count: number) => `Edit mode supports up to ${count} images.`,
         imageCountRange: (count: number) => `Count must be an integer between 1 and ${count}.`,
+        imagesPerRequestRange: (count: number) => `Images per request must be an integer between 1 and ${count}.`,
       }
     : {
         promptRequired: "Prompt 不能为空。",
@@ -1081,6 +1093,7 @@ function validationCopy(language: MessageLanguage) {
         editInputMissing: "请先选择至少一张图片。",
         editInputLimit: (count: number) => `编辑模式最多选择 ${count} 张图片。`,
         imageCountRange: (count: number) => `数量必须是 1 到 ${count} 之间的整数。`,
+        imagesPerRequestRange: (count: number) => `生成数量必须是 1 到 ${count} 之间的整数。`,
       };
 }
 

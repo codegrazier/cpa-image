@@ -244,6 +244,7 @@ export function saveSettings(values: StoredConsoleSettings) {
     aspectRatio: normalized.modeSettingsByMode.generate.aspectRatio,
     quality: normalized.modeSettingsByMode.generate.quality,
     n: normalized.modeSettingsByMode.generate.n,
+    imagesPerRequest: normalized.modeSettingsByMode.generate.imagesPerRequest,
     background: normalized.modeSettingsByMode.generate.background,
     outputFormat: normalized.modeSettingsByMode.generate.outputFormat,
     strictPrompt: normalized.modeSettingsByMode.generate.strictPrompt,

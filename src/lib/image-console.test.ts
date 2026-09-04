@@ -88,6 +88,7 @@ describe("image console logic", () => {
       background: "auto",
       outputFormat: "png",
       n: 3,
+      imagesPerRequest: 1,
       strictPrompt: false,
     });
   });
@@ -99,6 +100,7 @@ describe("image console logic", () => {
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
+        imagesPerRequest: 2,
         size: "1024x1024",
         quality: "high",
         background: "opaque",
@@ -112,7 +114,6 @@ describe("image console logic", () => {
       quality: "high",
       background: "opaque",
       output_format: "webp",
-      moderation: "low",
     });
   });
 
@@ -138,7 +139,6 @@ describe("image console logic", () => {
       quality: "high",
       background: "opaque",
       output_format: "webp",
-      moderation: "low",
     });
   });
 
@@ -152,7 +152,6 @@ describe("image console logic", () => {
 
     expect(payload.model).toBe("gpt-5.6");
     expect(payload.tools?.[0].type).toBe("image_generation");
-    expect(payload.tools?.[0].moderation).toBe("low");
   });
 
   test("puts aspect_ratio on image generation tools when ratio mode is enabled", () => {
@@ -193,6 +192,7 @@ describe("image console logic", () => {
         prompt: "glass jellyfish",
         strictPrompt: false,
         n: 2,
+        imagesPerRequest: 2,
         size: "1024x1536",
         quality: "high",
         background: "opaque",
@@ -208,7 +208,6 @@ describe("image console logic", () => {
     expect(payload.size).toBe("1024x1536");
     expect(payload.aspect_ratio).toBeUndefined();
     expect(payload.output_format).toBe("webp");
-    expect(payload.moderation).toBe("low");
   });
 
   test("builds edit payload with aspect_ratio when ratio mode is enabled", () => {
@@ -274,7 +273,6 @@ describe("image console logic", () => {
           quality: "high",
           background: "opaque",
           output_format: "webp",
-          moderation: "low",
         },
       ],
       tool_choice: {
@@ -384,7 +382,7 @@ describe("image console logic", () => {
     expect(revisedPromptForResponse({})).toBe("");
   });
 
-  test("splits multi-image requests into one-image requests by default", () => {
+  test("splits request count independently of images per request", () => {
     const payload = {
       model: "gpt-image-2",
       prompt: "glass jellyfish",
@@ -392,23 +390,24 @@ describe("image console logic", () => {
       size: "1024x1024",
     };
 
-    expect(buildGenerationRequests(payload)).toEqual([
-      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1024x1024" },
-      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1024x1024" },
-      { model: "gpt-image-2", prompt: "glass jellyfish", n: 1, size: "1024x1024" },
+    expect(buildGenerationRequests(payload, 2)).toEqual([
+      { model: "gpt-image-2", prompt: "glass jellyfish", n: 3, size: "1024x1024" },
+      { model: "gpt-image-2", prompt: "glass jellyfish", n: 3, size: "1024x1024" },
     ]);
   });
 
-  test("allows up to 100 generated images per batch", () => {
+  test("allows up to 100 requests per batch and 10 images per request", () => {
     const payload = buildPayload({
       prompt: "glass jellyfish",
       strictPrompt: false,
       n: 100,
+      imagesPerRequest: 10,
     });
 
-    expect(payload.n).toBe(100);
-    expect(buildGenerationRequests(payload)).toHaveLength(100);
+    expect(payload.n).toBe(10);
+    expect(buildGenerationRequests(payload, 100)).toHaveLength(100);
     expect(() => buildPayload({ prompt: "glass jellyfish", n: 101 })).toThrow(/1 到 100/);
+    expect(() => buildPayload({ prompt: "glass jellyfish", imagesPerRequest: 11 })).toThrow(/1 到 10/);
   });
 
   test("splits responses image_generation requests by count", () => {
@@ -464,8 +463,27 @@ describe("image console logic", () => {
     expect(requests).toHaveLength(3);
     expect(requests[0].model).toBe("gpt-image-2");
     expect(requests[0].n).toBe(1);
-    expect(requests[0].moderation).toBe("low");
     expect(requests[0]).not.toBe(requests[1]);
+  });
+
+  test("keeps payload n when splitting edit requests", () => {
+    const payload = buildEditImagePayload(
+      {
+        prompt: "glass jellyfish",
+        strictPrompt: false,
+        n: 2,
+        imagesPerRequest: 4,
+        size: "1024x1024",
+        outputFormat: "png",
+      },
+      [{ src: "blob:preview", name: "input.png", mimeType: "image/png", file: new File(["x"], "input.png") }],
+    );
+
+    const requests = buildEditImageRequests(payload, 2);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].n).toBe(4);
+    expect(requests[1].n).toBe(4);
   });
 
   test("creates independent request records", () => {

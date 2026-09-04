@@ -26,7 +26,9 @@ import {
   formatBatchPrefix,
   generationMethodDisplayName,
   imageCountFromValue,
+  imagesPerRequestFromValue,
   imageDownloadName,
+  OUTPUT_FORMAT_OPTIONS,
   imageBlobFromDataUrl,
   missingImageOutputMessage,
   prepareImageForDetailCacheWithDimensions,
@@ -145,8 +147,9 @@ function normalizeSettings(values: AppSettings, defaultStrictPromptText: string)
     requestConcurrency: normalizeRequestConcurrency(values.requestConcurrency),
     requestIntervalSeconds: normalizeRequestIntervalSeconds(values.requestIntervalSeconds),
     n: imageCountFromValue(values.n || DEFAULTS.n),
+    imagesPerRequest: imagesPerRequestFromValue(values.imagesPerRequest || DEFAULTS.imagesPerRequest),
     background: DEFAULTS.background,
-    outputFormat: DEFAULTS.outputFormat,
+    outputFormat: OUTPUT_FORMAT_OPTIONS.includes(values.outputFormat) ? values.outputFormat : DEFAULTS.outputFormat,
   };
 }
 
@@ -1506,7 +1509,7 @@ export function useImageConsole() {
           method = "image_generation";
         } else {
           const payload = buildPayload(values, language);
-          requestPayloads = buildGenerationRequests(payload);
+          requestPayloads = buildGenerationRequests(payload, values.n);
           endpoint = normalizeImageEndpoint(values.baseUrl, enableCrossOriginProxy);
           method = "gpt-image-2";
         }

@@ -45,6 +45,9 @@ import {
   MAX_EDIT_INPUT_IMAGES,
   ASPECT_RATIO_OPTION_GROUPS,
   MAX_IMAGE_COUNT,
+  MAX_IMAGES_PER_REQUEST,
+  MIN_IMAGES_PER_REQUEST,
+  OUTPUT_FORMAT_OPTIONS,
   QUALITY_OPTIONS,
   SIZE_OPTION_GROUPS,
   sizeOptionDisplayLabel,
@@ -115,12 +118,20 @@ function clampRequestCountInput(value: unknown) {
   return Math.min(MAX_IMAGE_COUNT, Math.max(1, parsed));
 }
 
+function clampImagesPerRequestInput(value: unknown) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed)) return MIN_IMAGES_PER_REQUEST;
+  return Math.min(MAX_IMAGES_PER_REQUEST, Math.max(MIN_IMAGES_PER_REQUEST, parsed));
+}
+
 function OptionSelect({
+  id,
   label,
   value,
   options,
   onValueChange,
 }: {
+  id?: string;
   label: string;
   value: string;
   options: readonly string[];
@@ -128,9 +139,9 @@ function OptionSelect({
 }) {
   return (
     <Field>
-      <FieldLabel className="min-h-5">{label}</FieldLabel>
+      <FieldLabel htmlFor={id} className="min-h-5">{label}</FieldLabel>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger id={id} className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -621,11 +632,27 @@ export function GeneratorPanel({
           onUseAspectRatioChange={(checked) => updateSettings("useAspectRatio", checked)}
         />
         <OptionSelect
+          id="quality"
           label={copy.generator.quality}
           value={String(settings.quality)}
           options={QUALITY_OPTIONS}
           onValueChange={(value) => updateSettings("quality", value as AppSettings["quality"])}
         />
+        <Field>
+          <FieldLabel htmlFor="imagesPerRequest">{copy.generator.imagesPerRequest}</FieldLabel>
+          <Input
+            id="imagesPerRequest"
+            name="imagesPerRequest"
+            type="number"
+            min={MIN_IMAGES_PER_REQUEST}
+            max={MAX_IMAGES_PER_REQUEST}
+            step={1}
+            inputMode="numeric"
+            value={settings.imagesPerRequest}
+            onChange={(event) => updateSettings("imagesPerRequest", event.target.value)}
+            onBlur={(event) => updateSettings("imagesPerRequest", clampImagesPerRequestInput(event.target.value))}
+          />
+        </Field>
         <Field>
           <FieldLabel htmlFor="n">{copy.generator.count}</FieldLabel>
           <Input
@@ -641,6 +668,13 @@ export function GeneratorPanel({
             onBlur={(event) => updateSettings("n", clampRequestCountInput(event.target.value))}
           />
         </Field>
+        <OptionSelect
+          id="outputFormat"
+          label={copy.generator.outputFormat}
+          value={String(settings.outputFormat)}
+          options={OUTPUT_FORMAT_OPTIONS}
+          onValueChange={(value) => updateSettings("outputFormat", value as AppSettings["outputFormat"])}
+        />
         <Field className="gap-2 self-end">
           <FieldTitle>{copy.generator.keepOriginalPrompt}</FieldTitle>
           <div className="flex min-h-9 items-center justify-between gap-3 rounded-md border px-3 py-1">

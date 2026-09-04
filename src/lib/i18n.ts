@@ -250,6 +250,7 @@ type Copy = {
     reusePrompt: string;
     responseJson: string;
     download: string;
+    downloadImage: string;
     editImage: string;
     rotateCounterclockwise: string;
     resolution: string;
@@ -298,7 +299,9 @@ type Copy = {
       portrait: string;
     };
     quality: string;
+    imagesPerRequest: string;
     count: string;
+    outputFormat: string;
     keepOriginalPrompt: string;
     keep: string;
     editOriginalPrompt: string;
@@ -483,6 +486,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "复用 Prompt",
       responseJson: "响应 JSON",
       download: "下载",
+      downloadImage: "下载图片",
       editImage: "编辑图片",
       rotateCounterclockwise: "逆时针旋转图片",
       resolution: "响应分辨率",
@@ -531,7 +535,9 @@ const COPY: Record<Language, Copy> = {
         portrait: "竖屏",
       },
       quality: "质量",
+      imagesPerRequest: "生成数量",
       count: "请求次数",
+      outputFormat: "输出格式",
       keepOriginalPrompt: "保持原始 Prompt",
       keep: "保持",
       editOriginalPrompt: "编辑原始 Prompt 文案",
@@ -738,6 +744,7 @@ const COPY: Record<Language, Copy> = {
       reusePrompt: "Reuse prompt",
       responseJson: "Response JSON",
       download: "Download",
+      downloadImage: "Download image",
       editImage: "Edit image",
       rotateCounterclockwise: "Rotate image counterclockwise",
       resolution: "Resolution",
@@ -786,7 +793,9 @@ const COPY: Record<Language, Copy> = {
         portrait: "Portrait",
       },
       quality: "Quality",
+      imagesPerRequest: "Images per request",
       count: "Request count",
+      outputFormat: "Output format",
       keepOriginalPrompt: "Keep original prompt",
       keep: "Keep",
       editOriginalPrompt: "Edit strict prompt text",

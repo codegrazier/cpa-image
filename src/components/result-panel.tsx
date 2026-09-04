@@ -32,6 +32,31 @@ import { cn } from "@/lib/utils";
 const REQUEST_ERROR_PREVIEW_LIMIT = 240;
 const DELETE_CONFIRMATION_TIMEOUT_MS = 3000;
 
+function galleryGridLayout(count: number) {
+  if (count <= 1) return { cols: 1, rows: 1 };
+  if (count === 2) return { cols: 2, rows: 1 };
+  if (count === 3) return { cols: 3, rows: 1 };
+  if (count === 4) return { cols: 2, rows: 2 };
+  if (count <= 6) return { cols: 3, rows: 2 };
+  if (count <= 8) return { cols: 4, rows: 2 };
+  return { cols: 5, rows: 2 };
+}
+
+function galleryGridColsClass(cols: number) {
+  switch (cols) {
+    case 2:
+      return "grid-cols-2";
+    case 3:
+      return "grid-cols-3";
+    case 4:
+      return "grid-cols-4";
+    case 5:
+      return "grid-cols-5";
+    default:
+      return "grid-cols-1";
+  }
+}
+
 interface StatusMessage {
   state: string;
   detail: string;
@@ -42,24 +67,32 @@ function truncateDisplayText(value: string, limit: number) {
   return `${value.slice(0, limit)}…`;
 }
 
-function downloadRequestImages(request: Pick<ImageRequestRecord, "images" | "payload" | "title" | "method">) {
-  const images = request.images || [];
-  for (const [index, image] of images.entries()) {
-    if (!image?.src) continue;
+function downloadRequestImage(
+  request: Pick<ImageRequestRecord, "images" | "payload" | "title" | "method">,
+  index: number,
+) {
+  const image = request.images?.[index];
+  if (!image?.src) return;
 
-    const isRemoteUrlFallback = /^https?:\/\//i.test(image.src);
-    const anchor = document.createElement("a");
-    anchor.href = image.src;
-    anchor.rel = "noopener";
-    if (isRemoteUrlFallback) {
-      anchor.target = "_blank";
-    } else {
-      anchor.download = imageDownloadName(request, index);
-    }
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+  const isRemoteUrlFallback = /^https?:\/\//i.test(image.src);
+  const anchor = document.createElement("a");
+  anchor.href = image.src;
+  anchor.rel = "noopener";
+  if (isRemoteUrlFallback) {
+    anchor.target = "_blank";
+  } else {
+    anchor.download = imageDownloadName(request, index);
+  }
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+function downloadRequestImages(request: Pick<ImageRequestRecord, "images" | "payload" | "title" | "method">) {
+  for (const [index, image] of (request.images || []).entries()) {
+    if (!image?.src) continue;
+    downloadRequestImage(request, index);
   }
 }
 
@@ -158,10 +191,14 @@ function Gallery({
     );
   }
 
-  const gridClass = displayImageCount === 1 ? "grid-cols-1" : "grid-cols-[repeat(auto-fit,minmax(220px,1fr))]";
+  const { cols, rows } = galleryGridLayout(displayImageCount);
 
   return (
-    <div className={cn("grid h-full min-h-90 gap-3", gridClass)}>
+    <div
+      className={cn("grid h-full min-h-0 overflow-hidden gap-3", galleryGridColsClass(cols))}
+      style={{ gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}
+      data-testid="result-gallery"
+    >
       {Array.from({ length: displayImageCount }, (_, index) => {
         const image = (images[index] || null) as GeneratedImage | null;
         const imageKey = `${requestId || "empty"}-${index}`;
@@ -176,6 +213,21 @@ function Gallery({
             {image ? (
               <>
                 <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon-xs"
+                        aria-label={copy.requestCardStatus.downloadImage}
+                        className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                        onClick={() => request && downloadRequestImage(request, index)}
+                      >
+                        <DownloadIcon data-icon="inline-start" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent sideOffset={8}>{copy.requestCardStatus.downloadImage}</TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -216,7 +268,7 @@ function Gallery({
                   src={image.src}
                   alt={copy.generatedImageAlt(index, { size: altSize, mode: altMode })}
                   loading="lazy"
-                  className="block max-h-full max-w-full object-contain transition-transform duration-200"
+                  className="block h-full w-full object-contain transition-transform duration-200"
                   style={{ transform: `rotate(${rotation}deg)` }}
                 />
               </>
@@ -373,10 +425,10 @@ export function ResultPanel({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 p-4">
-          <div className="flex h-full min-h-90 min-w-0 gap-3">
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
+          <div className="flex h-full min-h-90 min-w-0 overflow-hidden gap-3">
             <RequestInputImageRail request={selectedRequest} />
-            <div className="min-h-0 min-w-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <Gallery request={selectedRequest} loading={selectedRequestDetailLoading} onEditImage={onEditImage} />
             </div>
           </div>

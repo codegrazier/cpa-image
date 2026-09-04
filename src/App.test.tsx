@@ -332,6 +332,24 @@ describe("App", () => {
     expect(countInput).toHaveValue(1);
   });
 
+  test("clamps images per request to the supported range on blur", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const imagesPerRequestInput = await screen.findByLabelText("生成数量");
+
+    await user.clear(imagesPerRequestInput);
+    await user.type(imagesPerRequestInput, "11");
+    await user.tab();
+    expect(imagesPerRequestInput).toHaveValue(10);
+
+    await user.click(imagesPerRequestInput);
+    await user.clear(imagesPerRequestInput);
+    await user.type(imagesPerRequestInput, "0");
+    await user.tab();
+    expect(imagesPerRequestInput).toHaveValue(1);
+  });
+
   test("shows, previews, and persists the cross-origin proxy setting", async () => {
     const user = userEvent.setup();
     storeSettings({ enableCrossOriginProxy: true });
@@ -583,6 +601,10 @@ describe("App", () => {
     expect(Array.from(body.entries()).filter(([key]) => key === "image[]")).toHaveLength(1);
     expect(String(body.get("prompt"))).toContain("glass jellyfish");
     expect(body.get("model")).toBe("gpt-image-2");
+    expect(body.get("n")).toBe("1");
+    expect(body.get("output_format")).toBe("png");
+    expect(screen.getByLabelText("生成数量")).toHaveValue(1);
+    expect(screen.getByLabelText("输出格式")).toBeInTheDocument();
 
     const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
     expect(within(resultPanel).getByTestId("request-input-image-rail")).toBeInTheDocument();
@@ -1475,7 +1497,7 @@ describe("App", () => {
     expect(screen.getByText("暂无请求")).toBeInTheDocument();
   });
 
-  test("hides background and format controls and keeps default generation options", async () => {
+  test("hides background controls and sends stored output format", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
@@ -1484,11 +1506,12 @@ describe("App", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    storeSettings({ background: "transparent", outputFormat: "jpeg" });
+    storeSettings({ background: "transparent", outputFormat: "jpeg", imagesPerRequest: 3 });
 
     renderApp();
     expect(screen.queryByLabelText("背景")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("格式")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("输出格式")).toBeInTheDocument();
+    expect(screen.getByLabelText("生成数量")).toHaveValue(3);
 
     await user.type(await screen.findByLabelText("Prompt"), "logo");
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
@@ -1496,7 +1519,30 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalled();
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.background).toBe("auto");
-    expect(body.output_format).toBe("png");
+    expect(body.output_format).toBe("jpeg");
+    expect(body.n).toBe(3);
+  });
+
+  test("keeps images-per-request and output format independent across generate and edit modes", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const imagesPerRequestInput = await screen.findByLabelText("生成数量");
+    await user.clear(imagesPerRequestInput);
+    await user.type(imagesPerRequestInput, "4");
+    await user.tab();
+    expect(imagesPerRequestInput).toHaveValue(4);
+
+    await user.click(screen.getByLabelText("输出格式"));
+    await user.click(await screen.findByRole("option", { name: "webp" }));
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    expect(screen.getByLabelText("生成数量")).toHaveValue(1);
+    expect(screen.getByLabelText("输出格式")).toHaveTextContent("png");
+
+    await user.click(screen.getByRole("tab", { name: "生图" }));
+    expect(screen.getByLabelText("生成数量")).toHaveValue(4);
+    expect(screen.getByLabelText("输出格式")).toHaveTextContent("webp");
   });
 
   test("submits image generation requests and renders extracted images", async () => {
@@ -1546,8 +1592,8 @@ describe("App", () => {
     );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(expect.objectContaining({
       model: "gpt-image-custom",
-      moderation: "low",
     }));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("moderation");
   });
 
   test("downloads every image from multi-image generation responses", async () => {
@@ -1569,6 +1615,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
 
     expect(await screen.findByAltText("Generated image 2", { exact: false })).toBeInTheDocument();
+    expect(screen.getByTestId("result-gallery")).toHaveClass("grid-cols-2", "overflow-hidden");
     await user.click(screen.getByRole("button", { name: "下载" }));
 
     expect(clickSpy).toHaveBeenCalledTimes(2);
@@ -1576,6 +1623,33 @@ describe("App", () => {
     expect(downloads).toHaveLength(2);
     expect(downloads[0]).toMatch(/-1\.png$/);
     expect(downloads[1]).toMatch(/-2\.png$/);
+  });
+
+  test("downloads a single image from the hover action", async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }, { b64_json: WEBP_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(await screen.findByAltText("Generated image 2", { exact: false })).toBeInTheDocument();
+    const singleDownloadButtons = screen.getAllByRole("button", { name: "下载图片" });
+    expect(singleDownloadButtons).toHaveLength(2);
+    await user.click(singleDownloadButtons[1]);
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect((clickSpy.mock.instances[0] as HTMLAnchorElement).download).toMatch(/-2\.png$/);
   });
 
   test("opens remote URL fallback images in a new tab when download cannot use a blob", async () => {
