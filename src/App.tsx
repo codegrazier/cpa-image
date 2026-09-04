@@ -298,6 +298,7 @@ export default function App() {
           setJsonDialogOpen={consoleState.setJsonDialogOpen}
           reusePrompt={consoleState.reusePrompt}
           onEditImage={handleEditImage}
+          onDeleteRequest={consoleState.deleteRequest}
         />
         <GeneratorPanel
           mode={consoleState.mode}

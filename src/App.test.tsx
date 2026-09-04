@@ -1459,10 +1459,13 @@ describe("App", () => {
 
     const requestButton = await screen.findByRole("button", { name: /查看 .* 的生成结果/ });
     const requestId = requestButton.getAttribute("aria-label")!.match(/^查看 (.+) 的生成结果$/)?.[1] || "";
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
 
-    await user.click(screen.getByRole("button", { name: `删除 ${requestId}` }));
+    const resultDeleteButton = within(resultPanel).getByRole("button", { name: `删除 ${requestId}` });
+    await user.click(resultDeleteButton);
     expect(deleteRequestDetailsSpy).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: `再次点击确认删除 ${requestId}` }));
+    expect(resultDeleteButton).toHaveTextContent("删除");
+    await user.click(resultDeleteButton);
 
     await waitFor(() => expect(deleteRequestDetailsSpy).toHaveBeenCalledTimes(1));
     expect(deleteRequestDetailsSpy.mock.calls[0][0]).toHaveLength(1);
@@ -1527,8 +1530,8 @@ describe("App", () => {
     expect(
       [...(completedPanel as HTMLElement).querySelectorAll("button,a")]
         .map((element) => element.getAttribute("aria-label") || (element.textContent || "").trim())
-        .filter((text) => ["下载", "响应 JSON", "复用 Prompt"].includes(text)),
-    ).toEqual(["下载", "响应 JSON", "复用 Prompt"]);
+        .filter((text) => ["删除", "下载", "响应 JSON", "复用 Prompt"].includes(text)),
+    ).toEqual(["删除", "下载", "响应 JSON", "复用 Prompt"]);
 
     const reusePromptButton = screen.getByRole("button", { name: /复用 Prompt/ });
     await user.hover(reusePromptButton);
@@ -1884,6 +1887,59 @@ describe("App", () => {
 
     const dialog = screen.getByRole("dialog", { name: "响应 JSON" });
     expect(within(dialog).getByText(/CORS request blocked/)).toBeInTheDocument();
+  });
+
+  test("keeps the download icon mounted when switching away from a completed request", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "boom" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockImplementationOnce(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    const prompt = await screen.findByLabelText("Prompt");
+    await user.type(prompt, "done");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+    expect(await screen.findByAltText("Generated image 1", { exact: false })).toBeInTheDocument();
+
+    const resultPanel = document.querySelector('section[aria-live="polite"]') as HTMLElement;
+    const downloadButton = () => within(resultPanel).getByRole("button", { name: "下载", hidden: true });
+    expect(downloadButton().querySelector("svg")).not.toBeNull();
+
+    await user.clear(prompt);
+    await user.type(prompt, "fail");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+    const requestList = screen.getByRole("complementary", { name: "请求列表" });
+    expect(await within(requestList).findByText(/HTTP 500 boom/)).toBeInTheDocument();
+    await user.click(within(requestList).getAllByRole("button", { name: /查看 .* 的生成结果/ })[0]);
+
+    expect(downloadButton().querySelector("svg")).not.toBeNull();
+    expect(downloadButton().parentElement).toHaveClass("hidden");
+    expect(within(resultPanel).getByRole("button", { name: /^删除 / })).toBeInTheDocument();
+
+    await user.clear(prompt);
+    await user.type(prompt, "running");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+    const runningCard = await within(requestList).findByText("生成中");
+    await user.click(within(runningCard.closest("div") as HTMLElement).getByRole("button", { name: /查看 .* 的生成结果/ }));
+
+    expect(downloadButton().querySelector("svg")).not.toBeNull();
+    expect(downloadButton().parentElement).toHaveClass("hidden");
+    expect(within(resultPanel).getByRole("button", { name: /响应 JSON/, hidden: true }).parentElement).toHaveClass("hidden");
+    expect(within(resultPanel).queryByRole("button", { name: /^删除 / })).not.toBeInTheDocument();
   });
 
   test("does not show the cross-origin toast when the upstream cannot be reached", async () => {

@@ -1,4 +1,5 @@
 import {
+  CheckIcon,
   CopyIcon,
   DownloadIcon,
   FileJsonIcon,
@@ -6,6 +7,7 @@ import {
   Loader2Icon,
   PencilIcon,
   RotateCcwIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -13,6 +15,7 @@ import { ImagePreviewDialog } from "@/components/image-preview-dialog";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useTimedConfirmation } from "@/hooks/use-timed-confirmation";
 import {
   imageDownloadName,
   payloadSize,
@@ -27,6 +30,7 @@ import { getCopy, useI18n, type Language } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const REQUEST_ERROR_PREVIEW_LIMIT = 240;
+const DELETE_CONFIRMATION_TIMEOUT_MS = 3000;
 
 interface StatusMessage {
   state: string;
@@ -86,29 +90,18 @@ function selectedRequestImageSize(request: ImageRequestRecord | null) {
 
 function ActionSlot({
   visible,
-  label,
   children,
 }: {
   visible: boolean;
-  label: string;
   children: ReactNode;
 }) {
   return (
-    <div className="shrink-0">
-      {visible ? (
-        children
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="invisible pointer-events-none"
-          tabIndex={-1}
-          aria-hidden="true"
-        >
-          {label}
-        </Button>
-      )}
+    <div
+      className={cn("shrink-0", !visible && "hidden")}
+      aria-hidden={!visible}
+      {...(!visible ? { inert: true } : {})}
+    >
+      {children}
     </div>
   );
 }
@@ -247,6 +240,7 @@ export function ResultPanel({
   setJsonDialogOpen,
   reusePrompt,
   onEditImage,
+  onDeleteRequest,
 }: {
   selectedRequest: ImageRequestRecord | null;
   selectedRequestDetailLoadingId: string | null;
@@ -255,8 +249,20 @@ export function ResultPanel({
   setJsonDialogOpen: (open: boolean) => void;
   reusePrompt: (request: ImageRequestRecord) => void;
   onEditImage: (value: string) => void;
+  onDeleteRequest: (id: string) => void;
 }) {
   const { copy, language } = useI18n();
+  const { pendingKey: pendingDeleteRequestId, requestConfirmation } = useTimedConfirmation(DELETE_CONFIRMATION_TIMEOUT_MS);
+  const canDelete = Boolean(
+    selectedRequest && selectedRequest.status !== "queued" && selectedRequest.status !== "running",
+  );
+  const isConfirmingDelete = Boolean(canDelete && selectedRequest && pendingDeleteRequestId === selectedRequest.id);
+  const deleteLabel = copy.requestCardStatus.delete;
+  const deleteAriaLabel = selectedRequest
+    ? language === "en"
+      ? `Delete ${selectedRequest.title}`
+      : `删除 ${selectedRequest.title}`
+    : copy.requestCardStatus.delete;
   const canDownload = selectedRequest?.status === "done";
   const canReuse = Boolean(selectedRequest && reusablePromptForRequest(selectedRequest));
   const canShowResponseJson = Boolean(selectedRequest && selectedRequest.status !== "queued" && selectedRequest.status !== "running");
@@ -291,7 +297,24 @@ export function ResultPanel({
             <span className="truncate text-xs font-medium text-muted-foreground">{selectedRequestStatusText}</span>
           </div>
           <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2 self-center">
-            <ActionSlot visible={Boolean(canDownload)} label={copy.requestCardStatus.download}>
+            <ActionSlot visible={canDelete}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={isConfirmingDelete ? "text-destructive hover:text-destructive" : undefined}
+                aria-label={deleteAriaLabel}
+                onClick={() => {
+                  if (!selectedRequest) return;
+                  if (!requestConfirmation(selectedRequest.id)) return;
+                  onDeleteRequest(selectedRequest.id);
+                }}
+              >
+                {isConfirmingDelete ? <CheckIcon data-icon="inline-start" /> : <Trash2Icon data-icon="inline-start" />}
+                {deleteLabel}
+              </Button>
+            </ActionSlot>
+            <ActionSlot visible={Boolean(canDownload)}>
               <Button
                 type="button"
                 variant="outline"
@@ -306,7 +329,7 @@ export function ResultPanel({
                 {copy.requestCardStatus.download}
               </Button>
             </ActionSlot>
-            <ActionSlot visible={canShowResponseJson} label={copy.requestCardStatus.responseJson}>
+            <ActionSlot visible={canShowResponseJson}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -325,7 +348,7 @@ export function ResultPanel({
                 </TooltipContent>
               </Tooltip>
             </ActionSlot>
-            <ActionSlot visible={Boolean(selectedRequest)} label={copy.requestCardStatus.reusePrompt}>
+            <ActionSlot visible={Boolean(selectedRequest)}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
