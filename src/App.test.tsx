@@ -597,12 +597,16 @@ describe("App", () => {
       "http://localhost:8317/v1/images/edits",
       expect.objectContaining({ method: "POST" }),
     );
-    const body = fetchMock.mock.calls[0][1].body as FormData;
-    expect(Array.from(body.entries()).filter(([key]) => key === "image[]")).toHaveLength(1);
-    expect(String(body.get("prompt"))).toContain("glass jellyfish");
-    expect(body.get("model")).toBe("gpt-image-2");
-    expect(body.get("n")).toBe("1");
-    expect(body.get("output_format")).toBe("png");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(String((init.headers as Record<string, string>)["Content-Type"])).toContain("application/json");
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("gpt-image-2");
+    expect(body.prompt).toContain("glass jellyfish");
+    expect(body.n).toBe(1);
+    expect(body.output_format).toBe("png");
+    expect(body.images).toHaveLength(1);
+    expect(body.images[0].image_url).toMatch(/^data:image\/png;base64,/);
+    expect(body.images[0].url).toBe(body.images[0].image_url);
     expect(screen.getByLabelText("生成数量")).toHaveValue(1);
     expect(screen.getByLabelText("输出格式")).toBeInTheDocument();
 
@@ -1392,9 +1396,10 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /^edits$/ }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const editBody = fetchMock.mock.calls[1][1].body as FormData;
-    expect(editBody.get("aspect_ratio")).toBe("9:16");
-    expect(editBody.get("size")).toBeNull();
+    const editBody = JSON.parse(String(fetchMock.mock.calls[1][1].body));
+    expect(editBody.aspect_ratio).toBe("9:16");
+    expect(editBody).not.toHaveProperty("size");
+    expect(editBody.images[0].image_url).toMatch(/^data:image\/png;base64,/);
   });
 
   test("clears failed requests while keeping successful ones", async () => {
