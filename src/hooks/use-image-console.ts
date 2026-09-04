@@ -1841,7 +1841,7 @@ export function useImageConsole() {
         const blob = await blobFromGeneratedImage(item.image);
         if (blob) {
           entries.push({
-            name: uniqueZipEntryName(imageDownloadName(item.request, item.index), usedNames),
+            name: uniqueZipEntryName(imageDownloadName(item.request, item.index, item.image), usedNames),
             blob,
           });
         }

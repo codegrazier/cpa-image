@@ -1750,9 +1750,12 @@ export function imageDownloadName(
   request: Pick<ImageRequestRecord, "payload" | "title" | "method"> &
     Partial<Pick<ImageRequestRecord, "imageCount" | "images">>,
   index = 0,
+  image: GeneratedImage | null = request?.images?.[index] || null,
 ) {
-  const image = request?.images?.[index];
-  const format = downloadExtensionFromMimeType(image?.mimeType, payloadOutputFormat(request?.payload));
+  const format = downloadExtensionFromMimeType(
+    image?.mimeType || image?.blob?.type,
+    payloadOutputFormat(request?.payload),
+  );
   const title = String(request?.title || "image").replace(/[^\w.-]+/g, "-");
   const prefix = "CPA-Image";
   const imageCount = request?.images?.length || Number(request?.imageCount || 0);

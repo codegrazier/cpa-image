@@ -594,6 +594,33 @@ describe("image console logic", () => {
     ).toBe("CPA-Image-260904-1924-1.jpg");
   });
 
+  test("names zip entries from the provided image even when request.images is empty", () => {
+    expect(
+      imageDownloadName(
+        {
+          method: "gpt-image-2",
+          title: "260904-1924-1",
+          payload: { model: "gpt-image-2", output_format: "png" },
+          imageCount: 2,
+        },
+        1,
+        { src: "blob:image", kind: "base64", path: "data.b64_json", mimeType: "image/jpeg" },
+      ),
+    ).toBe("CPA-Image-260904-1924-1-2.jpg");
+    expect(
+      imageDownloadName(
+        {
+          method: "gpt-image-2",
+          title: "260904-1924-1",
+          payload: { model: "gpt-image-2", output_format: "png" },
+          imageCount: 1,
+        },
+        0,
+        { src: "", kind: "base64", path: "data.b64_json", blob: new Blob(["x"], { type: "image/jpeg" }) },
+      ),
+    ).toBe("CPA-Image-260904-1924-1.jpg");
+  });
+
   test("uses CPA-Image as the download filename prefix for edit requests", () => {
     expect(
       imageDownloadName({
