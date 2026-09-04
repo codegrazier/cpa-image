@@ -152,6 +152,7 @@ function Gallery({
   const images = request?.status === "done" && !request.detailsMissing ? request.images : [];
   const requestId = request?.id || "";
   const [rotationByImageKey, setRotationByImageKey] = useState<Record<string, number>>({});
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const isDetailLoading = Boolean(
     request &&
       request.status === "done" &&
@@ -163,6 +164,7 @@ function Gallery({
 
   useEffect(() => {
     setRotationByImageKey({});
+    setPreviewIndex(null);
   }, [requestId]);
 
   if (isDetailLoading) {
@@ -194,93 +196,110 @@ function Gallery({
   const { cols, rows } = galleryGridLayout(displayImageCount);
 
   return (
-    <div
-      className={cn("grid h-full min-h-0 overflow-hidden gap-3", galleryGridColsClass(cols))}
-      style={{ gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}
-      data-testid="result-gallery"
-    >
-      {Array.from({ length: displayImageCount }, (_, index) => {
-        const image = (images[index] || null) as GeneratedImage | null;
-        const imageKey = `${requestId || "empty"}-${index}`;
-        const rotation = rotationByImageKey[imageKey] || 0;
-        const altSize = payloadSize(request?.payload);
-        const altMode = request?.method || "";
-        return (
-          <article
-            key={imageKey}
-            className="image-checkerboard group relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg border"
-          >
-            {image ? (
-              <>
-                <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="icon-xs"
-                        aria-label={copy.requestCardStatus.downloadImage}
-                        className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
-                        onClick={() => request && downloadRequestImage(request, index)}
-                      >
-                        <DownloadIcon data-icon="inline-start" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={8}>{copy.requestCardStatus.downloadImage}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="icon-xs"
-                        aria-label={copy.requestCardStatus.editImage}
-                        className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
-                        onClick={() => onEditImage(`${requestId}:${index}`)}
-                      >
-                        <PencilIcon data-icon="inline-start" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={8}>{copy.requestCardStatus.editImage}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="icon-xs"
-                        aria-label={copy.requestCardStatus.rotateCounterclockwise}
-                        className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
-                        onClick={() =>
-                          setRotationByImageKey((current) => ({
-                            ...current,
-                            [imageKey]: (current[imageKey] || 0) - 90,
-                          }))
-                        }
-                      >
-                        <RotateCcwIcon data-icon="inline-start" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={8}>{copy.requestCardStatus.rotateCounterclockwise}</TooltipContent>
-                  </Tooltip>
+    <>
+      <div
+        className={cn("grid h-full min-h-0 overflow-hidden gap-3", galleryGridColsClass(cols))}
+        style={{ gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}
+        data-testid="result-gallery"
+      >
+        {Array.from({ length: displayImageCount }, (_, index) => {
+          const image = (images[index] || null) as GeneratedImage | null;
+          const imageKey = `${requestId || "empty"}-${index}`;
+          const rotation = rotationByImageKey[imageKey] || 0;
+          const altSize = payloadSize(request?.payload);
+          const altMode = request?.method || "";
+          return (
+            <article
+              key={imageKey}
+              className="image-checkerboard group relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg border"
+            >
+              {image ? (
+                <>
+                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon-xs"
+                          aria-label={copy.requestCardStatus.downloadImage}
+                          className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                          onClick={() => request && downloadRequestImage(request, index)}
+                        >
+                          <DownloadIcon data-icon="inline-start" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent sideOffset={8}>{copy.requestCardStatus.downloadImage}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon-xs"
+                          aria-label={copy.requestCardStatus.editImage}
+                          className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                          onClick={() => onEditImage(`${requestId}:${index}`)}
+                        >
+                          <PencilIcon data-icon="inline-start" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent sideOffset={8}>{copy.requestCardStatus.editImage}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon-xs"
+                          aria-label={copy.requestCardStatus.rotateCounterclockwise}
+                          className="border border-border/70 bg-background/85 shadow-sm backdrop-blur"
+                          onClick={() =>
+                            setRotationByImageKey((current) => ({
+                              ...current,
+                              [imageKey]: (current[imageKey] || 0) - 90,
+                            }))
+                          }
+                        >
+                          <RotateCcwIcon data-icon="inline-start" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent sideOffset={8}>{copy.requestCardStatus.rotateCounterclockwise}</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <button
+                    type="button"
+                    className="block h-full w-full cursor-zoom-in"
+                    aria-label={`${copy.requestCardStatus.previewGeneratedImage} ${index + 1}`}
+                    onClick={() => setPreviewIndex(index)}
+                  >
+                    <img
+                      src={image.src}
+                      alt={copy.generatedImageAlt(index, { size: altSize, mode: altMode })}
+                      loading="lazy"
+                      className="block h-full w-full object-contain transition-transform duration-200"
+                      style={{ transform: `rotate(${rotation}deg)` }}
+                    />
+                  </button>
+                </>
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  {loading ? <Loader2Icon className="size-5 animate-spin text-muted-foreground" /> : <ImageIcon className="size-6 text-muted-foreground" />}
                 </div>
-                <img
-                  src={image.src}
-                  alt={copy.generatedImageAlt(index, { size: altSize, mode: altMode })}
-                  loading="lazy"
-                  className="block h-full w-full object-contain transition-transform duration-200"
-                  style={{ transform: `rotate(${rotation}deg)` }}
-                />
-              </>
-            ) : (
-              <div className="flex h-full w-full items-center justify-center">
-                {loading ? <Loader2Icon className="size-5 animate-spin text-muted-foreground" /> : <ImageIcon className="size-6 text-muted-foreground" />}
-              </div>
-            )}
-          </article>
-        );
-      })}
-    </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <ImagePreviewDialog
+        images={images}
+        index={previewIndex}
+        onIndexChange={setPreviewIndex}
+        title={copy.requestCardStatus.previewGeneratedImage}
+        previousLabel={copy.generator.previewPreviousImage}
+        nextLabel={copy.generator.previewNextImage}
+      />
+    </>
   );
 }
 

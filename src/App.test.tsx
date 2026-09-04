@@ -1562,6 +1562,11 @@ describe("App", () => {
 
     const generatedImage = await screen.findByAltText("Generated image 1", { exact: false });
     expect(generatedImage).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+    await user.click(screen.getByRole("button", { name: "预览结果图片 1" }));
+    const previewDialog = await screen.findByRole("dialog");
+    expect(within(previewDialog).getByRole("img")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const rotateImageButton = screen.getByRole("button", { name: "逆时针旋转图片" });
     await user.click(rotateImageButton);
     expect(generatedImage).toHaveStyle({ transform: "rotate(-90deg)" });
@@ -1623,6 +1628,38 @@ describe("App", () => {
     expect(downloads).toHaveLength(2);
     expect(downloads[0]).toMatch(/-1\.png$/);
     expect(downloads[1]).toMatch(/-2\.png$/);
+  });
+
+  test("previews generated images and switches across the request outputs", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }, { b64_json: WEBP_BASE64 }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    renderApp();
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    expect(await screen.findByAltText("Generated image 2", { exact: false })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "预览结果图片 1" }));
+    const dialog = await screen.findByRole("dialog");
+    const firstSrc = within(dialog).getByRole("img").getAttribute("src");
+
+    await user.click(within(dialog).getByRole("button", { name: "下一张" }));
+    await waitFor(() => expect(within(dialog).getByRole("img").getAttribute("src")).not.toBe(firstSrc));
+
+    await user.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(within(dialog).getByRole("img").getAttribute("src")).toBe(firstSrc));
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   test("downloads a single image from the hover action", async () => {
