@@ -1531,7 +1531,7 @@ describe("App", () => {
     expect(within(completedPanel as HTMLElement).getByText(/完成 · .*MB/)).toBeInTheDocument();
     expect(
       [...(completedPanel as HTMLElement).querySelectorAll("button,a")]
-        .map((element) => element.getAttribute("aria-label") || (element.textContent || "").trim())
+        .map((element) => (element.textContent || "").trim())
         .filter((text) => ["删除", "下载", "响应 JSON", "复用 Prompt"].includes(text)),
     ).toEqual(["删除", "下载", "响应 JSON", "复用 Prompt"]);
 
