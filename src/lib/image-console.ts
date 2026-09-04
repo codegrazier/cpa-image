@@ -270,7 +270,7 @@ export const DEFAULTS: AppSettings = {
   responsesModel: "gpt-5.4-mini",
   completionsModel: "gpt-5.4-mini",
   strictPromptText: "",
-  strictPrompt: true,
+  strictPrompt: false,
   requestConcurrency: 2,
   requestIntervalSeconds: 60,
   size: "auto",

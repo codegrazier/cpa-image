@@ -80,7 +80,7 @@ function storeSettings(settings: Partial<AppSettings>) {
       rememberKey: false,
       enableCrossOriginProxy: false,
       apiKey: "test-key",
-      strictPrompt: true,
+      strictPrompt: false,
       requestConcurrency: 2,
       requestIntervalSeconds: 0,
       size: "auto",
@@ -406,6 +406,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /配置/ }));
     await user.click(screen.getByRole("button", { name: "保存" }));
 
+    await user.click(screen.getByRole("checkbox", { name: "保持" }));
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
 
@@ -439,6 +440,7 @@ describe("App", () => {
     await user.type(englishBody, "Keep only the subject and lighting");
     await user.click(within(englishEditor).getByRole("button", { name: "Confirm" }));
 
+    await user.click(screen.getByRole("checkbox", { name: "Keep" }));
     await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
     await user.click(screen.getByRole("button", { name: /^generations$/ }));
 
@@ -2304,7 +2306,7 @@ describe("App", () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("gpt-5.4-mini");
     expect(body.messages[0].role).toBe("user");
-    expect(body.messages[0].content).toMatch(/原始 Prompt:\nglass jellyfish/);
+    expect(body.messages[0].content).toBe("glass jellyfish");
     expect(body.tools[0].type).toBe("image_generation");
   });
 

@@ -88,7 +88,7 @@ describe("image console logic", () => {
       background: "auto",
       outputFormat: "png",
       n: 3,
-      strictPrompt: true,
+      strictPrompt: false,
     });
   });
 
@@ -318,11 +318,22 @@ describe("image console logic", () => {
     });
   });
 
-  test("adds strict prompt policy by default", () => {
+  test("does not wrap prompts when keep-original is left at the default", () => {
     const payload = buildPayload({
       generationsModel: "gpt-image-2",
       prompt: "glass jellyfish",
       n: 1,
+    });
+
+    expect(payload.prompt).toBe("glass jellyfish");
+  });
+
+  test("wraps prompts when keep-original is enabled", () => {
+    const payload = buildPayload({
+      generationsModel: "gpt-image-2",
+      prompt: "glass jellyfish",
+      n: 1,
+      strictPrompt: true,
     });
 
     expect(payload.prompt).toMatch(/不要改写、扩写、翻译、润色/);
