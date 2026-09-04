@@ -290,6 +290,8 @@ type Copy = {
     selectAtLeastOneImage: string;
     maxEditImages: (count: number) => string;
     size: string;
+    aspectRatio: string;
+    sizeOrAspectRatio: string;
     sizeGroups: {
       square: string;
       landscape: string;
@@ -521,6 +523,8 @@ const COPY: Record<Language, Copy> = {
       selectAtLeastOneImage: "请选择一张或多张图片。",
       maxEditImages: (count) => `编辑模式最多选择 ${count} 张图片。`,
       size: "尺寸",
+      aspectRatio: "比例",
+      sizeOrAspectRatio: "尺寸或比例",
       sizeGroups: {
         square: "方形",
         landscape: "横屏",
@@ -774,6 +778,8 @@ const COPY: Record<Language, Copy> = {
       selectAtLeastOneImage: "Please choose one or more images.",
       maxEditImages: (count) => `Edit mode supports up to ${count} images.`,
       size: "Size",
+      aspectRatio: "Ratio",
+      sizeOrAspectRatio: "Size or ratio",
       sizeGroups: {
         square: "Square",
         landscape: "Landscape",

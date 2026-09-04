@@ -72,6 +72,8 @@ describe("image console logic", () => {
     expect(
       normalizeModeSettings({
         size: "9999x9999",
+        useAspectRatio: "yes",
+        aspectRatio: "7:5",
         quality: "ultra",
         background: "glass",
         outputFormat: "tiff",
@@ -80,6 +82,8 @@ describe("image console logic", () => {
       }),
     ).toMatchObject({
       size: "auto",
+      useAspectRatio: false,
+      aspectRatio: "1:1",
       quality: "auto",
       background: "auto",
       outputFormat: "png",
@@ -112,6 +116,32 @@ describe("image console logic", () => {
     });
   });
 
+  test("sends aspect_ratio instead of size when ratio mode is enabled", () => {
+    expect(
+      buildPayload({
+        generationsModel: "custom-image-model",
+        prompt: "glass jellyfish",
+        strictPrompt: false,
+        n: 1,
+        size: "1024x1024",
+        useAspectRatio: true,
+        aspectRatio: "16:9",
+        quality: "high",
+        background: "opaque",
+        outputFormat: "webp",
+      }),
+    ).toEqual({
+      model: "custom-image-model",
+      prompt: "glass jellyfish",
+      n: 1,
+      aspect_ratio: "16:9",
+      quality: "high",
+      background: "opaque",
+      output_format: "webp",
+      moderation: "low",
+    });
+  });
+
   test("uses configurable responses image_generation model", () => {
     const payload = buildResponsesImagePayload({
       responsesModel: "gpt-5.6",
@@ -123,6 +153,36 @@ describe("image console logic", () => {
     expect(payload.model).toBe("gpt-5.6");
     expect(payload.tools?.[0].type).toBe("image_generation");
     expect(payload.tools?.[0].moderation).toBe("low");
+  });
+
+  test("puts aspect_ratio on image generation tools when ratio mode is enabled", () => {
+    const responsesPayload = buildResponsesImagePayload({
+      prompt: "glass jellyfish",
+      strictPrompt: false,
+      n: 1,
+      useAspectRatio: true,
+      aspectRatio: "3:2",
+    });
+    const completionsPayload = buildChatCompletionsImagePayload({
+      prompt: "glass jellyfish",
+      strictPrompt: false,
+      n: 1,
+      useAspectRatio: true,
+      aspectRatio: "4:3",
+    });
+
+    expect(responsesPayload.tools?.[0]).toEqual(
+      expect.objectContaining({
+        aspect_ratio: "3:2",
+      }),
+    );
+    expect(responsesPayload.tools?.[0]).not.toHaveProperty("size");
+    expect(completionsPayload.tools?.[0]).toEqual(
+      expect.objectContaining({
+        aspect_ratio: "4:3",
+      }),
+    );
+    expect(completionsPayload.tools?.[0]).not.toHaveProperty("size");
   });
 
   test("builds edit payload with uploaded images", () => {
@@ -145,8 +205,32 @@ describe("image console logic", () => {
     expect(payload.prompt).toBe("glass jellyfish");
     expect(payload.images).toBeUndefined();
     expect(payload.n).toBe(2);
+    expect(payload.size).toBe("1024x1536");
+    expect(payload.aspect_ratio).toBeUndefined();
     expect(payload.output_format).toBe("webp");
     expect(payload.moderation).toBe("low");
+  });
+
+  test("builds edit payload with aspect_ratio when ratio mode is enabled", () => {
+    const file = new File(["image-bytes"], "input.png", { type: "image/png" });
+    const payload = buildEditImagePayload(
+      {
+        editsModel: "gpt-image-3",
+        prompt: "glass jellyfish",
+        strictPrompt: false,
+        n: 1,
+        size: "1024x1536",
+        useAspectRatio: true,
+        aspectRatio: "9:16",
+        quality: "high",
+        background: "opaque",
+        outputFormat: "webp",
+      },
+      [{ src: "blob:preview", name: "input.png", mimeType: "image/png", file }],
+    );
+
+    expect(payload.size).toBeUndefined();
+    expect(payload.aspect_ratio).toBe("9:16");
   });
 
   test("rejects edit payloads with more than five input images", () => {

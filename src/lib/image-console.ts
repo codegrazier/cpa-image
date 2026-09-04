@@ -63,6 +63,18 @@ export const SIZE_OPTIONS = [
   ...SIZE_OPTION_GROUPS.portrait,
 ] as const;
 
+export const ASPECT_RATIO_OPTION_GROUPS = {
+  square: ["1:1"],
+  landscape: ["3:2", "4:3", "16:9"],
+  portrait: ["2:3", "3:4", "9:16"],
+} as const;
+
+export const ASPECT_RATIO_OPTIONS = [
+  ...ASPECT_RATIO_OPTION_GROUPS.square,
+  ...ASPECT_RATIO_OPTION_GROUPS.landscape,
+  ...ASPECT_RATIO_OPTION_GROUPS.portrait,
+] as const;
+
 export const SIZE_OPTION_DISPLAY_LABELS: Partial<Record<ImageSize, string>> = {
   "2048x2048": "2048x2048 (2K)",
   "2048x1536": "2048x1536 (2K)",
@@ -82,6 +94,7 @@ export const BACKGROUND_OPTIONS = ["auto", "opaque", "transparent"] as const;
 export const OUTPUT_FORMAT_OPTIONS = ["png", "webp", "jpeg"] as const;
 
 export type ImageSize = (typeof SIZE_OPTIONS)[number];
+export type ImageAspectRatio = (typeof ASPECT_RATIO_OPTIONS)[number];
 export type ImageQuality = (typeof QUALITY_OPTIONS)[number];
 export type ImageBackground = (typeof BACKGROUND_OPTIONS)[number];
 export type ImageOutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number];
@@ -107,6 +120,8 @@ export interface AppSettings {
   requestConcurrency: number | string;
   requestIntervalSeconds: number | string;
   size: ImageSize;
+  useAspectRatio: boolean;
+  aspectRatio: ImageAspectRatio;
   quality: ImageQuality;
   n: number | string;
   background: ImageBackground;
@@ -128,7 +143,10 @@ export type SharedSettings = Pick<
   | "requestIntervalSeconds"
 >;
 
-export type ModeSettings = Pick<AppSettings, "size" | "quality" | "n" | "background" | "outputFormat" | "strictPrompt">;
+export type ModeSettings = Pick<
+  AppSettings,
+  "size" | "useAspectRatio" | "aspectRatio" | "quality" | "n" | "background" | "outputFormat" | "strictPrompt"
+>;
 
 export interface StoredConsoleSettings {
   shared: SharedSettings;
@@ -142,6 +160,7 @@ export interface GenerationValues extends AppSettings {
 export interface ImageToolPayload {
   type: "image_generation";
   size?: string;
+  aspect_ratio?: string;
   quality?: string;
   background?: string;
   output_format?: string;
@@ -180,6 +199,7 @@ export interface RequestPayload {
   messages?: ChatCompletionMessage[];
   n?: number | string;
   size?: string;
+  aspect_ratio?: string;
   quality?: string;
   background?: string;
   output_format?: string;
@@ -254,6 +274,8 @@ export const DEFAULTS: AppSettings = {
   requestConcurrency: 2,
   requestIntervalSeconds: 60,
   size: "auto",
+  useAspectRatio: false,
+  aspectRatio: "1:1",
   quality: "auto",
   n: 1,
   background: "auto",
@@ -276,6 +298,8 @@ export const DEFAULT_SHARED_SETTINGS: SharedSettings = {
 
 export const DEFAULT_MODE_SETTINGS: ModeSettings = {
   size: DEFAULTS.size,
+  useAspectRatio: DEFAULTS.useAspectRatio,
+  aspectRatio: DEFAULTS.aspectRatio,
   quality: DEFAULTS.quality,
   n: DEFAULTS.n,
   background: DEFAULTS.background,
@@ -365,6 +389,8 @@ export function normalizeModeSettings(values: unknown = {}): ModeSettings {
   return {
     ...DEFAULT_MODE_SETTINGS,
     size: optionFromValue(source.size, SIZE_OPTIONS, DEFAULTS.size),
+    useAspectRatio: typeof source.useAspectRatio === "boolean" ? source.useAspectRatio : DEFAULTS.useAspectRatio,
+    aspectRatio: optionFromValue(source.aspectRatio, ASPECT_RATIO_OPTIONS, DEFAULTS.aspectRatio),
     quality: optionFromValue(source.quality, QUALITY_OPTIONS, DEFAULTS.quality),
     n: imageCountFromValue(source.n || DEFAULTS.n),
     background: optionFromValue(source.background, BACKGROUND_OPTIONS, DEFAULTS.background),
@@ -442,7 +468,19 @@ export function payloadOutputFormat(payload: RequestPayload | undefined | null) 
 
 export function payloadSize(payload: RequestPayload | undefined | null) {
   const tool = payloadImageTool(payload);
-  return payload?.size || tool?.size || DEFAULTS.size;
+  return payload?.aspect_ratio || tool?.aspect_ratio || payload?.size || tool?.size || DEFAULTS.size;
+}
+
+function usesAspectRatio(values: Partial<GenerationValues> | undefined) {
+  return Boolean(values?.useAspectRatio);
+}
+
+function imageShapeFields(values: Partial<GenerationValues> | undefined) {
+  if (usesAspectRatio(values)) {
+    return { aspect_ratio: values?.aspectRatio || DEFAULTS.aspectRatio };
+  }
+
+  return { size: values?.size || DEFAULTS.size };
 }
 
 export function reusablePromptForRequest(request: Pick<ImageRequestRecord, "payload" | "sourcePrompt">) {
@@ -529,7 +567,7 @@ export function buildPayload(
     model,
     prompt: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt, values.strictPromptText),
     n: imageCount,
-    size: values.size || DEFAULTS.size,
+    ...imageShapeFields(values),
     quality: values.quality || DEFAULTS.quality,
     background: values.background || DEFAULTS.background,
     output_format: values.outputFormat || DEFAULTS.outputFormat,
@@ -559,7 +597,7 @@ export function buildResponsesImagePayload(
     tools: [
       {
         type: "image_generation",
-        size: values.size || DEFAULTS.size,
+        ...imageShapeFields(values),
         quality: values.quality || DEFAULTS.quality,
         background: values.background || DEFAULTS.background,
         output_format: values.outputFormat || DEFAULTS.outputFormat,
@@ -599,7 +637,7 @@ export function buildChatCompletionsImagePayload(
     tools: [
       {
         type: "image_generation",
-        size: values.size || DEFAULTS.size,
+        ...imageShapeFields(values),
         quality: values.quality || DEFAULTS.quality,
         background: values.background || DEFAULTS.background,
         output_format: values.outputFormat || DEFAULTS.outputFormat,
@@ -640,7 +678,7 @@ export function buildEditImagePayload(
     model,
     prompt: applyPromptPolicy(prompt, values.strictPrompt ?? DEFAULTS.strictPrompt, values.strictPromptText),
     n: requestedCount,
-    size: values.size || DEFAULTS.size,
+    ...imageShapeFields(values),
     quality: values.quality || DEFAULTS.quality,
     background: values.background || DEFAULTS.background,
     output_format: values.outputFormat || DEFAULTS.outputFormat,

@@ -240,6 +240,8 @@ export function saveSettings(values: StoredConsoleSettings) {
     requestIntervalSeconds: normalized.shared.requestIntervalSeconds,
     strictPromptText: normalized.shared.strictPromptText,
     size: normalized.modeSettingsByMode.generate.size,
+    useAspectRatio: normalized.modeSettingsByMode.generate.useAspectRatio,
+    aspectRatio: normalized.modeSettingsByMode.generate.aspectRatio,
     quality: normalized.modeSettingsByMode.generate.quality,
     n: normalized.modeSettingsByMode.generate.n,
     background: normalized.modeSettingsByMode.generate.background,

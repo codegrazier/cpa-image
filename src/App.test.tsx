@@ -1260,6 +1260,119 @@ describe("App", () => {
     expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("2048x2048 (2K)");
   });
 
+  test("toggles generate and edit size controls to aspect ratio independently", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const generationSwitch = screen.getByRole("switch", { name: "尺寸或比例" });
+    expect(generationSwitch).not.toBeChecked();
+    expect(screen.getByText("尺寸")).toBeInTheDocument();
+    expect(screen.queryByText("比例")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("auto");
+
+    await user.click(screen.getByText("尺寸"));
+    expect(generationSwitch).toBeChecked();
+    expect(screen.getByText("比例")).toBeInTheDocument();
+    await user.click(screen.getByText("比例"));
+    expect(generationSwitch).not.toBeChecked();
+    expect(screen.getByText("尺寸")).toBeInTheDocument();
+
+    await user.click(generationSwitch);
+    expect(generationSwitch).toBeChecked();
+    expect(screen.getByText("比例")).toBeInTheDocument();
+    expect(screen.queryByText("尺寸")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("1:1");
+
+    await user.click(screen.getAllByRole("combobox")[0]);
+    expect(await screen.findByText("方形")).toBeInTheDocument();
+    expect(screen.getByText("横屏")).toBeInTheDocument();
+    expect(screen.getByText("竖屏")).toBeInTheDocument();
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "1:1",
+      "3:2",
+      "4:3",
+      "16:9",
+      "2:3",
+      "3:4",
+      "9:16",
+    ]);
+    await user.click(await screen.findByRole("option", { name: "16:9" }));
+    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("16:9");
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    const editSwitch = screen.getByRole("switch", { name: "尺寸或比例" });
+    expect(editSwitch).not.toBeChecked();
+    expect(screen.getByText("尺寸")).toBeInTheDocument();
+    expect(screen.queryByText("比例")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("auto");
+
+    await user.click(editSwitch);
+    expect(editSwitch).toBeChecked();
+    expect(screen.getByText("比例")).toBeInTheDocument();
+    expect(screen.queryByText("尺寸")).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole("combobox")[1]);
+    await user.click(await screen.findByRole("option", { name: "9:16" }));
+    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("9:16");
+
+    await user.click(screen.getByRole("tab", { name: "生图" }));
+    expect(screen.getByRole("switch", { name: "尺寸或比例" })).toBeChecked();
+    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("16:9");
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    expect(screen.getByRole("switch", { name: "尺寸或比例" })).toBeChecked();
+    expect(screen.getAllByRole("combobox")[1]).toHaveTextContent("9:16");
+  });
+
+  test("submits generate and edit requests with aspect_ratio instead of size", async () => {
+    const user = userEvent.setup();
+    storeSettings({ requestIntervalSeconds: 0, strictPrompt: false });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: PNG_BASE64 }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    if (typeof URL.createObjectURL !== "function") {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: vi.fn(() => "blob:preview"),
+      });
+    } else {
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
+    }
+
+    renderApp();
+    await user.click(screen.getByRole("switch", { name: "尺寸或比例" }));
+    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(await screen.findByRole("option", { name: "16:9" }));
+    await user.type(await screen.findByLabelText("Prompt"), "glass jellyfish");
+    await user.click(screen.getByRole("button", { name: /^generations$/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(
+      expect.objectContaining({
+        aspect_ratio: "16:9",
+      }),
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("size");
+    expect(await screen.findByText("generations · 16:9")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await user.click(screen.getByRole("switch", { name: "尺寸或比例" }));
+    await user.click(screen.getAllByRole("combobox")[1]);
+    await user.click(await screen.findByRole("option", { name: "9:16" }));
+    await user.type(screen.getByLabelText("Prompt"), "glass jellyfish");
+    await user.upload(screen.getByLabelText("选择本地图片"), new File(["image-bytes"], "input.png", { type: "image/png" }));
+    await user.click(screen.getByRole("button", { name: /^edits$/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const editBody = fetchMock.mock.calls[1][1].body as FormData;
+    expect(editBody.get("aspect_ratio")).toBe("9:16");
+    expect(editBody.get("size")).toBeNull();
+  });
+
   test("clears failed requests while keeping successful ones", async () => {
     const user = userEvent.setup();
     storeSettings({ requestIntervalSeconds: 0 });

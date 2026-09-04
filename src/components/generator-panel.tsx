@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -42,6 +43,7 @@ import { type ConnectionStatus } from "@/hooks/use-image-console";
 import { useTimedConfirmation } from "@/hooks/use-timed-confirmation";
 import {
   MAX_EDIT_INPUT_IMAGES,
+  ASPECT_RATIO_OPTION_GROUPS,
   MAX_IMAGE_COUNT,
   QUALITY_OPTIONS,
   SIZE_OPTION_GROUPS,
@@ -67,6 +69,12 @@ const SIZE_GROUPS = [
   { key: "square", icon: SquareIcon, options: SIZE_OPTION_GROUPS.square },
   { key: "landscape", icon: RectangleHorizontalIcon, options: SIZE_OPTION_GROUPS.landscape },
   { key: "portrait", icon: RectangleVerticalIcon, options: SIZE_OPTION_GROUPS.portrait },
+] as const;
+
+const ASPECT_RATIO_GROUPS = [
+  { key: "square", icon: SquareIcon, options: ASPECT_RATIO_OPTION_GROUPS.square },
+  { key: "landscape", icon: RectangleHorizontalIcon, options: ASPECT_RATIO_OPTION_GROUPS.landscape },
+  { key: "portrait", icon: RectangleVerticalIcon, options: ASPECT_RATIO_OPTION_GROUPS.portrait },
 ] as const;
 
 interface HistoricalEditImageOption {
@@ -120,7 +128,7 @@ function OptionSelect({
 }) {
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel className="min-h-5">{label}</FieldLabel>
       <Select value={value} onValueChange={onValueChange}>
         <SelectTrigger className="w-full">
           <SelectValue />
@@ -139,20 +147,56 @@ function OptionSelect({
   );
 }
 
-function SizeSelect({ value, onValueChange }: { value: string; onValueChange: (value: string) => void }) {
+function SizeSelect({
+  size,
+  aspectRatio,
+  useAspectRatio,
+  onSizeChange,
+  onAspectRatioChange,
+  onUseAspectRatioChange,
+}: {
+  size: string;
+  aspectRatio: string;
+  useAspectRatio: boolean;
+  onSizeChange: (value: string) => void;
+  onAspectRatioChange: (value: string) => void;
+  onUseAspectRatioChange: (checked: boolean) => void;
+}) {
   const { copy } = useI18n();
+  const groups = useAspectRatio ? ASPECT_RATIO_GROUPS : SIZE_GROUPS;
+  const value = useAspectRatio ? aspectRatio : size;
+
+  const switchId = "size-or-aspect-ratio";
 
   return (
     <Field>
-      <FieldLabel>{copy.generator.size}</FieldLabel>
-      <Select value={value} onValueChange={onValueChange}>
+      <div className="flex min-h-5 items-center gap-2">
+        <FieldLabel htmlFor={switchId} className="min-h-5">
+          {useAspectRatio ? copy.generator.aspectRatio : copy.generator.size}
+        </FieldLabel>
+        <Switch
+          id={switchId}
+          checked={useAspectRatio}
+          onCheckedChange={onUseAspectRatioChange}
+          aria-label={copy.generator.sizeOrAspectRatio}
+        />
+      </div>
+      <Select
+        key={useAspectRatio ? "aspect-ratio" : "size"}
+        value={value}
+        onValueChange={useAspectRatio ? onAspectRatioChange : onSizeChange}
+      >
         <SelectTrigger className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="auto">auto</SelectItem>
-          <SelectSeparator />
-          {SIZE_GROUPS.map((group) => (
+          {useAspectRatio ? null : (
+            <>
+              <SelectItem value="auto">auto</SelectItem>
+              <SelectSeparator />
+            </>
+          )}
+          {groups.map((group) => (
             <SelectGroup key={group.key}>
               <SelectLabel className="flex items-center gap-1.5">
                 <group.icon aria-hidden="true" className="size-3.5 shrink-0" />
@@ -160,7 +204,7 @@ function SizeSelect({ value, onValueChange }: { value: string; onValueChange: (v
               </SelectLabel>
               {group.options.map((option) => (
                 <SelectItem key={option} value={option}>
-                  {sizeOptionDisplayLabel(option)}
+                  {useAspectRatio ? option : sizeOptionDisplayLabel(option)}
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -568,7 +612,14 @@ export function GeneratorPanel({
       </FieldGroup>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <SizeSelect value={String(settings.size)} onValueChange={(value) => updateSettings("size", value as AppSettings["size"])} />
+        <SizeSelect
+          size={String(settings.size)}
+          aspectRatio={String(settings.aspectRatio)}
+          useAspectRatio={Boolean(settings.useAspectRatio)}
+          onSizeChange={(value) => updateSettings("size", value as AppSettings["size"])}
+          onAspectRatioChange={(value) => updateSettings("aspectRatio", value as AppSettings["aspectRatio"])}
+          onUseAspectRatioChange={(checked) => updateSettings("useAspectRatio", checked)}
+        />
         <OptionSelect
           label={copy.generator.quality}
           value={String(settings.quality)}
