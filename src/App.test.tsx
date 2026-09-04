@@ -1627,7 +1627,7 @@ describe("App", () => {
     const downloads = clickSpy.mock.instances.map((anchor) => (anchor as HTMLAnchorElement).download);
     expect(downloads).toHaveLength(2);
     expect(downloads[0]).toMatch(/-1\.png$/);
-    expect(downloads[1]).toMatch(/-2\.png$/);
+    expect(downloads[1]).toMatch(/-2\.webp$/);
   });
 
   test("previews generated images and switches across the request outputs", async () => {
@@ -1686,7 +1686,7 @@ describe("App", () => {
     await user.click(singleDownloadButtons[1]);
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
-    expect((clickSpy.mock.instances[0] as HTMLAnchorElement).download).toMatch(/-2\.png$/);
+    expect((clickSpy.mock.instances[0] as HTMLAnchorElement).download).toMatch(/-2\.webp$/);
   });
 
   test("opens remote URL fallback images in a new tab when download cannot use a blob", async () => {

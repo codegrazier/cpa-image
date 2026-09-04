@@ -583,6 +583,17 @@ describe("image console logic", () => {
     ).toBe("CPA-Image-260617-1801-1.png");
   });
 
+  test("names downloads from the actual image mime type instead of the requested format", () => {
+    expect(
+      imageDownloadName({
+        method: "gpt-image-2",
+        title: "260904-1924-1",
+        payload: { model: "gpt-image-2", output_format: "png" },
+        images: [{ src: "blob:image", kind: "base64", path: "data.b64_json", mimeType: "image/jpeg" }],
+      }, 0),
+    ).toBe("CPA-Image-260904-1924-1.jpg");
+  });
+
   test("uses CPA-Image as the download filename prefix for edit requests", () => {
     expect(
       imageDownloadName({

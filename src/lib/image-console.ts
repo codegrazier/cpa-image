@@ -1733,12 +1733,26 @@ export function responseErrorMessage(status: number, body: unknown, language: Me
   return `HTTP ${status} ${detail}`;
 }
 
+function downloadExtensionFromMimeType(mimeType: unknown, fallbackFormat: unknown = DEFAULTS.outputFormat) {
+  const normalized = String(mimeType || "").trim().toLowerCase().replace(/^image\//, "");
+  if (normalized === "jpeg" || normalized === "jpg") return "jpg";
+  if (normalized === "webp") return "webp";
+  if (normalized === "gif") return "gif";
+  if (normalized === "png") return "png";
+  const fallback = String(fallbackFormat || DEFAULTS.outputFormat).trim().toLowerCase();
+  if (fallback === "jpeg" || fallback === "jpg") return "jpg";
+  if (fallback === "webp") return "webp";
+  if (fallback === "gif") return "gif";
+  return "png";
+}
+
 export function imageDownloadName(
   request: Pick<ImageRequestRecord, "payload" | "title" | "method"> &
     Partial<Pick<ImageRequestRecord, "imageCount" | "images">>,
   index = 0,
 ) {
-  const format = payloadOutputFormat(request?.payload);
+  const image = request?.images?.[index];
+  const format = downloadExtensionFromMimeType(image?.mimeType, payloadOutputFormat(request?.payload));
   const title = String(request?.title || "image").replace(/[^\w.-]+/g, "-");
   const prefix = "CPA-Image";
   const imageCount = request?.images?.length || Number(request?.imageCount || 0);
